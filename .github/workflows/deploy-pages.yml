@@ -38,6 +38,7 @@ jobs:
         run: npm run build --workspace @crewpulse/web
         env:
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_BASE_PATH: /CrewPulse/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
