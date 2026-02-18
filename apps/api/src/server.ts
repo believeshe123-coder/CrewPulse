@@ -42,6 +42,10 @@ const createAssignmentSchema = z.object({
   scheduledEnd: z.coerce.date().optional(),
 });
 
+const createGroupSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+});
+
 const createWorkerSchema = z.object({
   employeeCode: z.string().trim().min(1).max(64),
   firstName: z.string().trim().min(1).max(100),
@@ -211,6 +215,41 @@ type AppPrismaClient = {
       };
       include: { flags: true };
     }) => Promise<WorkerWithFlags>;
+  };
+  group: {
+    create: (args: { data: { name: string; createdByUserId: string } }) => Promise<{
+      id: string;
+      name: string;
+      createdByUserId: string;
+      createdAt: Date;
+      updatedAt: Date;
+    }>;
+    findMany: (args: {
+      where: { memberships: { some: { userId: string } } };
+      orderBy: { createdAt: 'asc' | 'desc' };
+      include: { memberships: { where: { userId: string }; select: { joinedAt: true; roleInGroup: true } } };
+    }) => Promise<
+      Array<{
+        id: string;
+        name: string;
+        createdByUserId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        memberships: Array<{ joinedAt: Date; roleInGroup: string }>;
+      }>
+    >;
+    findUnique: (args: { where: { id: string }; select: { id: true } }) => Promise<{ id: string } | null>;
+  };
+  groupMembership: {
+    findUnique: (args: { where: { groupId_userId: { groupId: string; userId: string } } }) => Promise<
+      { groupId: string; userId: string; roleInGroup: string; joinedAt: Date } | null
+    >;
+    create: (args: { data: { groupId: string; userId: string; roleInGroup?: 'MEMBER' } }) => Promise<{
+      groupId: string;
+      userId: string;
+      roleInGroup: string;
+      joinedAt: Date;
+    }>;
   };
 };
 
@@ -805,6 +844,91 @@ export const buildApp = (deps: { prismaClient?: AppPrismaClient } = {}) => {
       throw error;
     }
   });
+
+
+  app.post('/groups', { preHandler: requireRole(['moderator']) }, async (request, reply) => {
+    const parsed = createGroupSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Invalid group payload' });
+    }
+
+    const createdGroup = await prismaClient.group.create({
+      data: {
+        name: parsed.data.name,
+        createdByUserId: request.user!.userId,
+      },
+    });
+
+    return reply.code(201).send({
+      id: createdGroup.id,
+      name: createdGroup.name,
+      createdByUserId: createdGroup.createdByUserId,
+      createdAt: createdGroup.createdAt,
+      updatedAt: createdGroup.updatedAt,
+    });
+  });
+
+  app.get('/groups/me', { preHandler: requireRole(['staff', 'moderator']) }, async (request) => {
+    const groups = await prismaClient.group.findMany({
+      where: { memberships: { some: { userId: request.user!.userId } } },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        memberships: {
+          where: { userId: request.user!.userId },
+          select: { joinedAt: true, roleInGroup: true },
+        },
+      },
+    });
+
+    return groups.map((group) => ({
+      id: group.id,
+      name: group.name,
+      createdByUserId: group.createdByUserId,
+      createdAt: group.createdAt,
+      updatedAt: group.updatedAt,
+      membership: group.memberships[0] ?? null,
+    }));
+  });
+
+  app.post(
+    '/groups/:id/join',
+    { preHandler: requireRole(['staff', 'moderator']) },
+    async (request, reply) => {
+      const params = request.params as { id: string };
+      const group = await prismaClient.group.findUnique({
+        where: { id: params.id },
+        select: { id: true },
+      });
+
+      if (!group) {
+        return reply.code(404).send({ message: 'Group not found' });
+      }
+
+      const existingMembership = await prismaClient.groupMembership.findUnique({
+        where: {
+          groupId_userId: {
+            groupId: params.id,
+            userId: request.user!.userId,
+          },
+        },
+      });
+
+      if (existingMembership) {
+        return reply.code(409).send({ message: 'Already a member of this group' });
+      }
+
+      const membership = await prismaClient.groupMembership.create({
+        data: {
+          groupId: params.id,
+          userId: request.user!.userId,
+          roleInGroup: 'MEMBER',
+        },
+      });
+
+      return reply.code(201).send(membership);
+    },
+  );
 
   app.get('/workers/:id', { preHandler: requireRole(['staff']) }, async (request, reply) => {
     const params = request.params as { id: string };

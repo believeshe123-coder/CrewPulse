@@ -12,6 +12,10 @@ enum UserRole {
   STAFF
 }
 
+enum GroupMembershipRole {
+  MEMBER
+}
+
 enum WorkerStatus {
   ACTIVE
   NEEDS_REVIEW
@@ -64,6 +68,36 @@ model User {
   role         UserRole
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  createdGroups    Group[]
+  groupMemberships GroupMembership[]
+}
+
+model Group {
+  id              String            @id @default(cuid())
+  name            String
+  createdByUserId String
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  createdBy   User              @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  memberships GroupMembership[]
+
+  @@index([createdByUserId])
+}
+
+model GroupMembership {
+  groupId     String
+  userId      String
+  roleInGroup GroupMembershipRole @default(MEMBER)
+  joinedAt    DateTime            @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+  @@unique([groupId, userId])
+  @@index([userId])
 }
 
 model Worker {
