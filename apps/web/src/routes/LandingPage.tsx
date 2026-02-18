@@ -1,88 +1,63 @@
-import { Badge, Button, Card, Flex, Heading, Link, Text } from '@radix-ui/themes';
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-
-import { clearAuthState, readAuthState, writeAuthState } from '../lib/auth';
-import { fetchHealth, login } from '../lib/api';
+import { Badge, Button, Card, Flex, Grid, Heading, Text } from '@radix-ui/themes';
 
 export const LandingPage = () => {
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [authState, setAuthState] = useState(() => readAuthState());
-  const navigate = useNavigate();
-
-  const healthQuery = useQuery({
-    queryKey: ['health'],
-    queryFn: fetchHealth,
-    retry: false,
-  });
-
-  const loginAs = async (userId: string) => {
-    setIsLoggingIn(true);
-
-    try {
-      const session = await login(userId);
-      writeAuthState(session);
-      setAuthState(session);
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const logout = () => {
-    clearAuthState();
-    setAuthState(null);
-  };
+  const dashboardSections = [
+    {
+      title: 'Top Performers',
+      tone: 'green' as const,
+      description: 'High-scoring workers by category will appear here.',
+    },
+    {
+      title: 'Needs Review',
+      tone: 'yellow' as const,
+      description: 'Workers showing decline or low category scores.',
+    },
+    {
+      title: 'NCNS Risk',
+      tone: 'orange' as const,
+      description: 'Attendance patterns with elevated no-call-no-show risk.',
+    },
+    {
+      title: 'Chronic Late',
+      tone: 'red' as const,
+      description: 'Workers with repeat late-arrival behavior.',
+    },
+  ];
 
   return (
-    <Flex minHeight="100vh" align="center" justify="center" p="6">
-      <Card size="3" style={{ width: '100%', maxWidth: 620 }}>
+    <Flex minHeight="100vh" direction="column" p="6" gap="5">
+      <Card size="3">
         <Flex direction="column" gap="4">
-          <Heading size="7">CrewPulse</Heading>
-          <Text color="gray">Auth + role-gated navigation demo.</Text>
-
-          {healthQuery.isPending && <Badge color="gray">Checking API health...</Badge>}
-          {healthQuery.isError && <Badge color="red">API unavailable</Badge>}
-          {healthQuery.data && <Badge color="green">API healthy</Badge>}
+          <Heading size="8">CrewPulse</Heading>
+          <Text color="gray">Workforce intelligence dashboard (MVP frontend placeholder).</Text>
 
           <Flex gap="2" wrap="wrap">
-            <Button disabled={isLoggingIn} onClick={() => void loginAs('staff-1')}>
-              Login as staff
-            </Button>
-            <Button disabled={isLoggingIn} onClick={() => void loginAs('customer-1')}>
-              Login as customer
-            </Button>
-            <Button disabled={isLoggingIn} onClick={() => void loginAs('worker-1')}>
-              Login as worker
-            </Button>
-            <Button color="gray" variant="soft" onClick={logout}>
-              Logout
-            </Button>
+            <Button variant="solid">Login as Staff</Button>
+            <Button variant="soft">Login as Customer</Button>
+            <Button variant="soft">Login as Worker</Button>
           </Flex>
 
-          {authState ? (
-            <Text size="2">Signed in as {authState.userId}</Text>
-          ) : (
-            <Text size="2" color="gray">
-              Sign in to navigate protected pages.
-            </Text>
-          )}
-
-          <Flex direction="column" gap="2">
-            <Link onClick={() => navigate('/staff/dashboard')}>Staff dashboard (staff-only)</Link>
-            <Link onClick={() => navigate('/workers/worker-1')}>Worker profile (staff-only)</Link>
-            <Link onClick={() => navigate('/workers/worker-1/profile-analytics')}>
-              Worker analytics (staff-only; worker self denied)
-            </Link>
-            <Link onClick={() => navigate('/assignments')}>
-              Assignments list + create (staff-only)
-            </Link>
-            <Link onClick={() => navigate('/assignments/a-1')}>
-              Assignment detail + events/ratings
-            </Link>
-          </Flex>
+          <Text size="2" color="gray">
+            Authentication wiring is intentionally placeholder-only for this first route.
+          </Text>
         </Flex>
       </Card>
+
+      <Grid columns={{ initial: '1', sm: '2', lg: '4' }} gap="3">
+        {dashboardSections.map((section) => (
+          <Card key={section.title} size="3">
+            <Flex direction="column" gap="3">
+              <Badge color={section.tone} variant="soft" style={{ width: 'fit-content' }}>
+                Dashboard Section
+              </Badge>
+              <Heading size="4">{section.title}</Heading>
+              <Text size="2" color="gray">
+                {section.description}
+              </Text>
+            </Flex>
+          </Card>
+        ))}
+      </Grid>
     </Flex>
   );
 };
