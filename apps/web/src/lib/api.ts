@@ -88,6 +88,14 @@ export type AssignmentRecord = {
   };
 };
 
+export type CreateWorkerPayload = {
+  employeeCode: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  email?: string;
+};
+
 const authedRequest = (auth: AuthState) => ({
   authorization: `Bearer ${auth.token}`,
   'content-type': 'application/json',
@@ -134,6 +142,16 @@ export const fetchWorkerAnalytics = async (id: string, auth: AuthState) => {
     headers: {
       authorization: `Bearer ${auth.token}`,
     },
+  });
+
+  return response;
+};
+
+export const createWorker = async (auth: AuthState, payload: CreateWorkerPayload) => {
+  const response = await fetch(`${API_BASE_URL}/workers`, {
+    method: 'POST',
+    headers: authedRequest(auth),
+    body: JSON.stringify(payload),
   });
 
   return response;
