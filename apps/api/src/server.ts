@@ -35,6 +35,16 @@ const createAssignmentSchema = z.object({
   scheduledEnd: z.coerce.date().optional(),
 });
 
+const createWorkerSchema = z.object({
+  employeeCode: z.string().trim().min(1).max(64),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
+  phone: z.string().trim().min(1).max(30).optional(),
+  email: z.string().trim().email().optional(),
+  status: z.enum(['active', 'needs_review', 'hold', 'terminate']).optional(),
+  tier: z.enum(['Strong', 'Watchlist', 'At Risk', 'Critical']).optional(),
+});
+
 const createEventSchema = z.object({
   eventType: assignmentEventTypeSchema,
   notes: z.string().min(1).max(300).optional(),
@@ -68,6 +78,14 @@ type Worker = {
   ncnsRate: number;
   tier: string;
   flags: string[];
+};
+
+type WorkerRecord = Worker & {
+  employeeCode: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  email?: string;
 };
 
 type AssignmentEvent = {
@@ -104,9 +122,13 @@ type Assignment = {
   createdAt: string;
 };
 
-const workers: Record<string, Worker> = {
-  'worker-1': {
+const seedWorkers: WorkerRecord[] = [
+  {
     id: 'worker-1',
+    employeeCode: 'EMP-001',
+    firstName: 'Jordan',
+    lastName: 'Miles',
+    email: 'jordan.miles@example.com',
     name: 'Jordan Miles',
     status: 'active',
     score: 4.2,
@@ -117,8 +139,12 @@ const workers: Record<string, Worker> = {
     tier: 'Strong',
     flags: ['late-cancel-last-quarter'],
   },
-  'worker-2': {
+  {
     id: 'worker-2',
+    employeeCode: 'EMP-002',
+    firstName: 'Taylor',
+    lastName: 'Brooks',
+    email: 'taylor.brooks@example.com',
     name: 'Taylor Brooks',
     status: 'needs_review',
     score: 3.15,
@@ -129,8 +155,12 @@ const workers: Record<string, Worker> = {
     tier: 'Watchlist',
     flags: ['needs-review'],
   },
-  'worker-3': {
+  {
     id: 'worker-3',
+    employeeCode: 'EMP-003',
+    firstName: 'Sam',
+    lastName: 'Rivera',
+    email: 'sam.rivera@example.com',
     name: 'Sam Rivera',
     status: 'hold',
     score: 1.85,
@@ -141,7 +171,29 @@ const workers: Record<string, Worker> = {
     tier: 'Critical',
     flags: ['needs-review', 'terminate-recommended'],
   },
-};
+];
+
+const workers = new Map(seedWorkers.map((worker) => [worker.id, worker]));
+const employeeCodeToWorkerId = new Map(seedWorkers.map((worker) => [worker.employeeCode.toLowerCase(), worker.id]));
+const emailToWorkerId = new Map(
+  seedWorkers
+    .filter((worker) => worker.email)
+    .map((worker) => [worker.email!.toLowerCase(), worker.id]),
+);
+let nextWorkerId = 4;
+
+const toWorkerResponse = (worker: WorkerRecord): Worker => ({
+  id: worker.id,
+  name: worker.name,
+  status: worker.status,
+  score: worker.score,
+  performanceScore: worker.performanceScore,
+  reliabilityScore: worker.reliabilityScore,
+  lateRate: worker.lateRate,
+  ncnsRate: worker.ncnsRate,
+  tier: worker.tier,
+  flags: worker.flags,
+});
 
 const assignments = new Map<string, Assignment>([
   [
@@ -292,7 +344,7 @@ const getWorkerAssignments = (workerId: string) =>
   Array.from(assignments.values()).filter((assignment) => assignment.workerId === workerId);
 
 const recalculateWorkerScoring = (workerId: string) => {
-  const worker = workers[workerId];
+  const worker = workers.get(workerId);
 
   if (!worker) {
     return;
@@ -378,16 +430,20 @@ const recalculateWorkerScoring = (workerId: string) => {
   worker.flags = flags;
 };
 
-const withAssignmentView = (assignment: Assignment) => ({
-  ...assignment,
-  worker: workers[assignment.workerId] ?? null,
-  events: assignmentEvents.get(assignment.id) ?? [],
-  staffRating: staffRatings.get(assignment.id) ?? null,
-  customerRating: customerRatings.get(assignment.id) ?? null,
-});
+const withAssignmentView = (assignment: Assignment) => {
+  const worker = workers.get(assignment.workerId);
+
+  return {
+    ...assignment,
+    worker: worker ? toWorkerResponse(worker) : null,
+    events: assignmentEvents.get(assignment.id) ?? [],
+    staffRating: staffRatings.get(assignment.id) ?? null,
+    customerRating: customerRatings.get(assignment.id) ?? null,
+  };
+};
 
 const buildDashboardSummary = () => {
-  const workerList = Object.values(workers);
+  const workerList = Array.from(workers.values());
   const totalWorkers = workerList.length;
   const statusCounts = workerList.reduce(
     (accumulator, worker) => {
@@ -486,7 +542,55 @@ export const buildApp = () => {
   });
 
   app.get('/workers', { preHandler: requireRole(['staff', 'customer']) }, async () => {
-    return Object.values(workers);
+    return Array.from(workers.values()).map(toWorkerResponse);
+  });
+
+  app.post('/workers', { preHandler: requireRole(['staff']) }, async (request, reply) => {
+    const parsed = createWorkerSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Invalid worker payload' });
+    }
+
+    const employeeCode = parsed.data.employeeCode.toLowerCase();
+    if (employeeCodeToWorkerId.has(employeeCode)) {
+      return reply.code(409).send({ message: 'Employee code already exists' });
+    }
+
+    const normalizedEmail = parsed.data.email?.toLowerCase();
+    if (normalizedEmail && emailToWorkerId.has(normalizedEmail)) {
+      return reply.code(409).send({ message: 'Email already exists' });
+    }
+
+    const id = `worker-${nextWorkerId}`;
+    nextWorkerId += 1;
+
+    const status = parsed.data.status ?? 'active';
+    const worker: WorkerRecord = {
+      id,
+      employeeCode: parsed.data.employeeCode,
+      firstName: parsed.data.firstName,
+      lastName: parsed.data.lastName,
+      phone: parsed.data.phone,
+      email: parsed.data.email,
+      name: `${parsed.data.firstName} ${parsed.data.lastName}`,
+      status,
+      score: 0,
+      performanceScore: 0,
+      reliabilityScore: 0,
+      lateRate: 0,
+      ncnsRate: 0,
+      tier: parsed.data.tier ?? 'Watchlist',
+      flags: status === 'needs_review' ? ['needs-review'] : [],
+    };
+
+    workers.set(id, worker);
+    employeeCodeToWorkerId.set(employeeCode, id);
+    if (normalizedEmail) {
+      emailToWorkerId.set(normalizedEmail, id);
+    }
+
+    return reply.code(201).send(toWorkerResponse(worker));
   });
 
   app.post('/auth/login', async (request, reply) => {
@@ -507,13 +611,13 @@ export const buildApp = () => {
 
   app.get('/workers/:id', { preHandler: requireRole(['staff']) }, async (request, reply) => {
     const params = request.params as { id: string };
-    const worker = workers[params.id];
+    const worker = workers.get(params.id);
 
     if (!worker) {
       return reply.code(404).send({ message: 'Worker not found' });
     }
 
-    return reply.send(worker);
+    return reply.send(toWorkerResponse(worker));
   });
 
   app.get('/workers/:id/profile-analytics', { preHandler: requireRole(['staff', 'worker']) }, async (request, reply) => {
@@ -550,7 +654,7 @@ export const buildApp = () => {
       return reply.code(400).send({ message: 'Invalid assignment payload' });
     }
 
-    if (!workers[parsed.data.workerId]) {
+    if (!workers.has(parsed.data.workerId)) {
       return reply.code(400).send({ message: 'Unknown workerId' });
     }
 
