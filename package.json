@@ -1,0 +1,21 @@
+{
+  "name": "crewpulse",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:api": "npm run dev --workspace @crewpulse/api",
+    "dev:web": "npm run dev --workspace @crewpulse/web",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "npm run format --workspaces --if-present",
+    "db:migrate": "npm run db:migrate --workspace @crewpulse/api"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
