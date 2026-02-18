@@ -4,8 +4,7 @@ import { readAuthState } from '../lib/auth';
 
 const roleGroupMap: Record<string, string[]> = {
   staff: ['Operations', 'Field Staffing', 'Safety Reviews'],
-  customer: ['Customer Coordination'],
-  worker: ['Worker Community'],
+  moderator: ['User Provisioning', 'Access Governance'],
 };
 
 export const PostLoginHomePage = () => {
@@ -39,6 +38,8 @@ export const PostLoginHomePage = () => {
 
       {auth?.role === 'staff' ? (
         <Link href="/staff/dashboard">Open staff dashboard</Link>
+      ) : auth?.role === 'moderator' ? (
+        <Link href="/assignments">Open assignments</Link>
       ) : (
         <Link href="/">Back to landing</Link>
       )}

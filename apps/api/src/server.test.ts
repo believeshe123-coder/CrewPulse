@@ -87,6 +87,74 @@ test('POST /auth/login rejects malformed payload', async (t) => {
 
   assert.equal(response.statusCode, 400);
 });
+
+
+test('POST /auth/users is moderator-only', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const moderatorToken = await loginAs(app, 'moderator.user');
+  const staffToken = await loginAs(app, 'staff.user');
+
+  const allowed = await app.inject({
+    method: 'POST',
+    url: '/auth/users',
+    headers: { authorization: `Bearer ${moderatorToken}` },
+    payload: {
+      username: 'staff.new',
+      password: 'Password123!',
+      role: 'staff',
+    },
+  });
+  assert.equal(allowed.statusCode, 201);
+
+  const denied = await app.inject({
+    method: 'POST',
+    url: '/auth/users',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: {
+      username: 'moderator.new',
+      password: 'Password123!',
+      role: 'moderator',
+    },
+  });
+  assert.equal(denied.statusCode, 403);
+});
+
+test('shared endpoints allow both moderator and staff', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const moderatorToken = await loginAs(app, 'moderator.user');
+  const staffToken = await loginAs(app, 'staff.user');
+
+  const workersForModerator = await app.inject({
+    method: 'GET',
+    url: '/workers',
+    headers: { authorization: `Bearer ${moderatorToken}` },
+  });
+  assert.equal(workersForModerator.statusCode, 200);
+
+  const assignmentsForStaff = await app.inject({
+    method: 'GET',
+    url: '/assignments',
+    headers: { authorization: `Bearer ${staffToken}` },
+  });
+  assert.equal(assignmentsForStaff.statusCode, 200);
+
+  const assignmentsForModerator = await app.inject({
+    method: 'GET',
+    url: '/assignments',
+    headers: { authorization: `Bearer ${moderatorToken}` },
+  });
+  assert.equal(assignmentsForModerator.statusCode, 200);
+});
 const createAssignmentForTests = async (
   app: ReturnType<typeof buildApp>,
   staffToken: string,
@@ -320,7 +388,7 @@ test('GET /workers/:id is staff-only', async (t) => {
   });
 
   const staffToken = await loginAs(app, 'staff.user');
-  const customerToken = await loginAs(app, 'moderator.user');
+  const moderatorToken = await loginAs(app, 'moderator.user');
 
   const allowed = await app.inject({
     method: 'GET',
@@ -332,7 +400,7 @@ test('GET /workers/:id is staff-only', async (t) => {
   const denied = await app.inject({
     method: 'GET',
     url: '/workers/worker-1',
-    headers: { authorization: `Bearer ${customerToken}` },
+    headers: { authorization: `Bearer ${moderatorToken}` },
   });
   assert.equal(denied.statusCode, 403);
 });
@@ -416,12 +484,12 @@ test('POST /workers rejects non-staff roles', async (t) => {
     await app.close();
   });
 
-  const customerToken = await loginAs(app, 'moderator.user');
+  const moderatorToken = await loginAs(app, 'moderator.user');
 
   const response = await app.inject({
     method: 'POST',
     url: '/workers',
-    headers: { authorization: `Bearer ${customerToken}` },
+    headers: { authorization: `Bearer ${moderatorToken}` },
     payload: {
       employeeCode: 'EMP-NEW-002',
       firstName: 'Blake',
@@ -603,7 +671,7 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
   });
 
   const staffToken = await loginAs(app, 'staff.user');
-  const customerToken = await loginAs(app, 'moderator.user');
+  const moderatorToken = await loginAs(app, 'moderator.user');
   const assignmentId = await createAssignmentForTests(app, staffToken);
 
   const badStaffRating = await app.inject({
@@ -635,7 +703,7 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
   const badCustomerRating = await app.inject({
     method: 'POST',
     url: `/assignments/${assignmentId}/customer-rating`,
-    headers: { authorization: `Bearer ${customerToken}` },
+    headers: { authorization: `Bearer ${moderatorToken}` },
     payload: { overall: 6 },
   });
   assert.equal(badCustomerRating.statusCode, 400);
@@ -643,7 +711,7 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
   const validCustomerRating = await app.inject({
     method: 'POST',
     url: `/assignments/${assignmentId}/customer-rating`,
-    headers: { authorization: `Bearer ${customerToken}` },
+    headers: { authorization: `Bearer ${moderatorToken}` },
     payload: { overall: 4, quality: 5, wouldRehire: true },
   });
   assert.equal(validCustomerRating.statusCode, 201);
@@ -653,7 +721,7 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
   const duplicateCustomerRating = await app.inject({
     method: 'POST',
     url: `/assignments/${assignmentId}/customer-rating`,
-    headers: { authorization: `Bearer ${customerToken}` },
+    headers: { authorization: `Bearer ${moderatorToken}` },
     payload: { overall: 5 },
   });
   assert.equal(duplicateCustomerRating.statusCode, 409);
@@ -667,7 +735,7 @@ test('scoring and flags recalculate on assignment/rating/event writes', async (t
   });
 
   const staffToken = await loginAs(app, 'staff.user');
-  const customerToken = await loginAs(app, 'moderator.user');
+  const moderatorToken = await loginAs(app, 'moderator.user');
 
   const created = await app.inject({
     method: 'POST',
@@ -693,7 +761,7 @@ test('scoring and flags recalculate on assignment/rating/event writes', async (t
   const customerRating = await app.inject({
     method: 'POST',
     url: `/assignments/${assignmentId}/customer-rating`,
-    headers: { authorization: `Bearer ${customerToken}` },
+    headers: { authorization: `Bearer ${moderatorToken}` },
     payload: { overall: 2 },
   });
   assert.equal(customerRating.statusCode, 201);
