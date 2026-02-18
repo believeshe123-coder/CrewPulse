@@ -3,91 +3,121 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  const highPerformer = await prisma.worker.upsert({
-    where: { employeeCode: 'W-1001' },
-    update: {
-      firstName: 'Avery',
-      lastName: 'Coleman',
-      status: 'ACTIVE',
-      tier: 'STRONG',
-      overallScore: '4.85',
-      performanceScore: '4.90',
-      reliabilityScore: '4.80',
-      lateRate: '0.0000',
-      ncnsRate: '0.0000'
-    },
-    create: {
-      employeeCode: 'W-1001',
-      firstName: 'Avery',
-      lastName: 'Coleman',
-      phone: '555-0101',
-      email: 'avery.coleman@crewpulse.local',
-      status: 'ACTIVE',
-      tier: 'STRONG',
-      overallScore: '4.85',
-      performanceScore: '4.90',
-      reliabilityScore: '4.80',
-      lateRate: '0.0000',
-      ncnsRate: '0.0000'
+  const ensureWorker = async (input: {
+    id: string;
+    employeeCode: string;
+    legacyEmployeeCode: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    email: string;
+    status: 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE';
+    tier: 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL';
+    overallScore: string;
+    performanceScore: string;
+    reliabilityScore: string;
+    lateRate: string;
+    ncnsRate: string;
+  }) => {
+    const existingWorker = await prisma.worker.findFirst({
+      where: {
+        OR: [
+          { id: input.id },
+          { employeeCode: input.employeeCode },
+          { employeeCode: input.legacyEmployeeCode },
+          { email: input.email },
+        ],
+      },
+    });
+
+    if (!existingWorker) {
+      return prisma.worker.create({
+        data: {
+          id: input.id,
+          employeeCode: input.employeeCode,
+          firstName: input.firstName,
+          lastName: input.lastName,
+          phone: input.phone,
+          email: input.email,
+          status: input.status,
+          tier: input.tier,
+          overallScore: input.overallScore,
+          performanceScore: input.performanceScore,
+          reliabilityScore: input.reliabilityScore,
+          lateRate: input.lateRate,
+          ncnsRate: input.ncnsRate,
+        },
+      });
     }
+
+    return prisma.worker.update({
+      where: { id: existingWorker.id },
+      data: {
+        employeeCode: input.employeeCode,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        phone: input.phone,
+        email: input.email,
+        status: input.status,
+        tier: input.tier,
+        overallScore: input.overallScore,
+        performanceScore: input.performanceScore,
+        reliabilityScore: input.reliabilityScore,
+        lateRate: input.lateRate,
+        ncnsRate: input.ncnsRate,
+      },
+    });
+  };
+
+  const highPerformer = await ensureWorker({
+    id: 'worker-1',
+    employeeCode: 'EMP-001',
+    legacyEmployeeCode: 'W-1001',
+    firstName: 'Avery',
+    lastName: 'Coleman',
+    phone: '555-0101',
+    email: 'avery.coleman@crewpulse.local',
+    status: 'ACTIVE',
+    tier: 'STRONG',
+    overallScore: '4.85',
+    performanceScore: '4.90',
+    reliabilityScore: '4.80',
+    lateRate: '0.0000',
+    ncnsRate: '0.0000',
   });
 
-  const chronicLate = await prisma.worker.upsert({
-    where: { employeeCode: 'W-1002' },
-    update: {
-      firstName: 'Jordan',
-      lastName: 'Mills',
-      status: 'NEEDS_REVIEW',
-      tier: 'WATCHLIST',
-      overallScore: '3.05',
-      performanceScore: '3.10',
-      reliabilityScore: '3.00',
-      lateRate: '0.4000',
-      ncnsRate: '0.0000'
-    },
-    create: {
-      employeeCode: 'W-1002',
-      firstName: 'Jordan',
-      lastName: 'Mills',
-      phone: '555-0102',
-      email: 'jordan.mills@crewpulse.local',
-      status: 'NEEDS_REVIEW',
-      tier: 'WATCHLIST',
-      overallScore: '3.05',
-      performanceScore: '3.10',
-      reliabilityScore: '3.00',
-      lateRate: '0.4000',
-      ncnsRate: '0.0000'
-    }
+  const chronicLate = await ensureWorker({
+    id: 'worker-2',
+    employeeCode: 'EMP-002',
+    legacyEmployeeCode: 'W-1002',
+    firstName: 'Jordan',
+    lastName: 'Mills',
+    phone: '555-0102',
+    email: 'jordan.mills@crewpulse.local',
+    status: 'NEEDS_REVIEW',
+    tier: 'WATCHLIST',
+    overallScore: '3.05',
+    performanceScore: '3.10',
+    reliabilityScore: '3.00',
+    lateRate: '0.4000',
+    ncnsRate: '0.0000',
   });
 
-  const ncnsRisk = await prisma.worker.upsert({
-    where: { employeeCode: 'W-1003' },
-    update: {
-      firstName: 'Taylor',
-      lastName: 'Reed',
-      status: 'HOLD',
-      tier: 'CRITICAL',
-      overallScore: '1.90',
-      performanceScore: '2.00',
-      reliabilityScore: '1.80',
-      lateRate: '0.0000',
-      ncnsRate: '0.5000'
-    },
-    create: {
-      employeeCode: 'W-1003',
-      firstName: 'Taylor',
-      lastName: 'Reed',
-      phone: '555-0103',
-      email: 'taylor.reed@crewpulse.local',
-      status: 'HOLD',
-      tier: 'CRITICAL',
-      overallScore: '1.90',
-      performanceScore: '2.00',
-      reliabilityScore: '1.80',
-      lateRate: '0.0000',
-      ncnsRate: '0.5000'
-    }
+  const ncnsRisk = await ensureWorker({
+    id: 'worker-3',
+    employeeCode: 'EMP-003',
+    legacyEmployeeCode: 'W-1003',
+    firstName: 'Taylor',
+    lastName: 'Reed',
+    phone: '555-0103',
+    email: 'taylor.reed@crewpulse.local',
+    status: 'HOLD',
+    tier: 'CRITICAL',
+    overallScore: '1.90',
+    performanceScore: '2.00',
+    reliabilityScore: '1.80',
+    lateRate: '0.0000',
+    ncnsRate: '0.5000',
   });
 
   const assignmentData = [
