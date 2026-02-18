@@ -1,14 +1,19 @@
+import { hashSync } from 'bcryptjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { clearSessionsForTests } from './auth.js';
 import { buildApp } from './server.js';
 
-const loginAs = async (app: ReturnType<typeof buildApp>, userId: string) => {
+const loginAs = async (
+  app: ReturnType<typeof buildApp>,
+  username: string,
+  password = 'Password123!',
+) => {
   const response = await app.inject({
     method: 'POST',
     url: '/auth/login',
-    payload: { userId },
+    payload: { username, password },
   });
 
   assert.equal(response.statusCode, 200);
@@ -16,7 +21,77 @@ const loginAs = async (app: ReturnType<typeof buildApp>, userId: string) => {
   return payload.token;
 };
 
-const createAssignmentForTests = async (app: ReturnType<typeof buildApp>, staffToken: string, workerId = 'worker-1') => {
+test('POST /auth/login authenticates valid credentials', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: { username: 'staff.user', password: 'Password123!' },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const payload = response.json() as { token: string; role: string };
+  assert.ok(payload.token.length > 0);
+  assert.equal(payload.role, 'staff');
+});
+
+test('POST /auth/login rejects invalid password', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: { username: 'staff.user', password: 'wrong-pass' },
+  });
+
+  assert.equal(response.statusCode, 401);
+});
+
+test('POST /auth/login rejects unknown username', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: { username: 'missing.user', password: 'Password123!' },
+  });
+
+  assert.equal(response.statusCode, 401);
+});
+
+test('POST /auth/login rejects malformed payload', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: { userId: 'staff-1' },
+  });
+
+  assert.equal(response.statusCode, 400);
+});
+const createAssignmentForTests = async (
+  app: ReturnType<typeof buildApp>,
+  staffToken: string,
+  workerId = 'worker-1',
+) => {
   const created = await app.inject({
     method: 'POST',
     url: '/assignments',
@@ -32,8 +107,6 @@ const createAssignmentForTests = async (app: ReturnType<typeof buildApp>, staffT
   assert.equal(created.statusCode, 201);
   return (created.json() as { id: string }).id;
 };
-
-
 
 const buildWorkersPrismaMock = () => {
   const workers = new Map<string, any>([
@@ -128,19 +201,74 @@ const buildWorkersPrismaMock = () => {
     ],
   ]);
 
+  const users = new Map<string, any>([
+    [
+      'staff.user',
+      {
+        id: 'user-staff-1',
+        username: 'staff.user',
+        passwordHash: hashSync('Password123!', 10),
+        role: 'STAFF',
+      },
+    ],
+    [
+      'moderator.user',
+      {
+        id: 'user-moderator-1',
+        username: 'moderator.user',
+        passwordHash: hashSync('Password123!', 10),
+        role: 'MODERATOR',
+      },
+    ],
+  ]);
+
   let nextWorkerId = 4;
 
   return {
+    user: {
+      findUnique: async ({ where }: { where: { username?: string; id?: string } }) => {
+        if (where.username) {
+          return users.get(where.username) ?? null;
+        }
+
+        if (where.id) {
+          return Array.from(users.values()).find((user) => user.id === where.id) ?? null;
+        }
+
+        return null;
+      },
+      create: async ({ data }: { data: any }) => {
+        if (users.has(data.username)) {
+          const duplicateUsernameError = { code: 'P2002', meta: { target: ['username'] } };
+          throw duplicateUsernameError;
+        }
+
+        const created = {
+          id: `user-${users.size + 1}`,
+          username: data.username,
+          passwordHash: data.passwordHash,
+          role: data.role,
+        };
+
+        users.set(created.username, created);
+        return { id: created.id, username: created.username, role: created.role };
+      },
+    },
     worker: {
       findMany: async () => Array.from(workers.values()),
       findUnique: async ({ where }: { where: { id: string } }) => workers.get(where.id) ?? null,
       create: async ({ data }: { data: any }) => {
-        if (Array.from(workers.values()).some((worker) => worker.employeeCode === data.employeeCode)) {
+        if (
+          Array.from(workers.values()).some((worker) => worker.employeeCode === data.employeeCode)
+        ) {
           const duplicateEmployeeCodeError = { code: 'P2002', meta: { target: ['employeeCode'] } };
           throw duplicateEmployeeCodeError;
         }
 
-        if (data.email && Array.from(workers.values()).some((worker) => worker.email === data.email)) {
+        if (
+          data.email &&
+          Array.from(workers.values()).some((worker) => worker.email === data.email)
+        ) {
           const duplicateEmailError = { code: 'P2002', meta: { target: ['email'] } };
           throw duplicateEmailError;
         }
@@ -164,19 +292,18 @@ const buildWorkersPrismaMock = () => {
           ncnsRate: data.ncnsRate,
           createdAt: new Date('2026-02-01T00:00:00.000Z'),
           updatedAt: new Date('2026-02-01T00:00:00.000Z'),
-          flags:
-            data.flags?.create
-              ? [
-                  {
-                    id: `flag-${id}`,
-                    workerId: id,
-                    flagType: data.flags.create.flagType,
-                    reason: data.flags.create.reason,
-                    triggeredAt: new Date('2026-02-01T00:00:00.000Z'),
-                    resolvedAt: null,
-                  },
-                ]
-              : [],
+          flags: data.flags?.create
+            ? [
+                {
+                  id: `flag-${id}`,
+                  workerId: id,
+                  flagType: data.flags.create.flagType,
+                  reason: data.flags.create.reason,
+                  triggeredAt: new Date('2026-02-01T00:00:00.000Z'),
+                  resolvedAt: null,
+                },
+              ]
+            : [],
         };
 
         workers.set(id, created);
@@ -192,8 +319,8 @@ test('GET /workers/:id is staff-only', async (t) => {
     await app.close();
   });
 
-  const staffToken = await loginAs(app, 'staff-1');
-  const customerToken = await loginAs(app, 'customer-1');
+  const staffToken = await loginAs(app, 'staff.user');
+  const customerToken = await loginAs(app, 'moderator.user');
 
   const allowed = await app.inject({
     method: 'GET',
@@ -217,7 +344,7 @@ test('GET /workers lists seeded worker records for dashboard bootstrap', async (
     await app.close();
   });
 
-  const staffToken = await loginAs(app, 'staff-1');
+  const staffToken = await loginAs(app, 'staff.user');
 
   const response = await app.inject({
     method: 'GET',
@@ -232,8 +359,6 @@ test('GET /workers lists seeded worker records for dashboard bootstrap', async (
   assert.ok(payload.some((worker) => worker.tier === 'Critical'));
 });
 
-
-
 test('POST /workers allows staff to create worker', async (t) => {
   clearSessionsForTests();
   const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
@@ -241,7 +366,7 @@ test('POST /workers allows staff to create worker', async (t) => {
     await app.close();
   });
 
-  const staffToken = await loginAs(app, 'staff-1');
+  const staffToken = await loginAs(app, 'staff.user');
 
   const created = await app.inject({
     method: 'POST',
@@ -291,7 +416,7 @@ test('POST /workers rejects non-staff roles', async (t) => {
     await app.close();
   });
 
-  const customerToken = await loginAs(app, 'customer-1');
+  const customerToken = await loginAs(app, 'moderator.user');
 
   const response = await app.inject({
     method: 'POST',
@@ -314,7 +439,7 @@ test('POST /workers validates worker payload', async (t) => {
     await app.close();
   });
 
-  const staffToken = await loginAs(app, 'staff-1');
+  const staffToken = await loginAs(app, 'staff.user');
 
   const response = await app.inject({
     method: 'POST',
@@ -338,7 +463,7 @@ test('POST /workers enforces unique employeeCode and email', async (t) => {
     await app.close();
   });
 
-  const staffToken = await loginAs(app, 'staff-1');
+  const staffToken = await loginAs(app, 'staff.user');
 
   const duplicateEmployeeCode = await app.inject({
     method: 'POST',
@@ -373,7 +498,7 @@ test('GET /dashboard/summary returns seeded counts and key cards', async (t) => 
     await app.close();
   });
 
-  const staffToken = await loginAs(app, 'staff-1');
+  const staffToken = await loginAs(app, 'staff.user');
 
   const response = await app.inject({
     method: 'GET',
@@ -410,7 +535,7 @@ test('POST /assignments creates records and validates worker relation', async (t
     await app.close();
   });
 
-  const staffToken = await loginAs(app, 'staff-1');
+  const staffToken = await loginAs(app, 'staff.user');
 
   const invalidWorker = await app.inject({
     method: 'POST',
@@ -441,7 +566,7 @@ test('POST /assignments/:id/events records staffing outcomes', async (t) => {
     await app.close();
   });
 
-  const staffToken = await loginAs(app, 'staff-1');
+  const staffToken = await loginAs(app, 'staff.user');
   const assignmentId = await createAssignmentForTests(app, staffToken);
 
   const invalid = await app.inject({
@@ -477,8 +602,8 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
     await app.close();
   });
 
-  const staffToken = await loginAs(app, 'staff-1');
-  const customerToken = await loginAs(app, 'customer-1');
+  const staffToken = await loginAs(app, 'staff.user');
+  const customerToken = await loginAs(app, 'moderator.user');
   const assignmentId = await createAssignmentForTests(app, staffToken);
 
   const badStaffRating = await app.inject({
@@ -541,8 +666,8 @@ test('scoring and flags recalculate on assignment/rating/event writes', async (t
     await app.close();
   });
 
-  const staffToken = await loginAs(app, 'staff-1');
-  const customerToken = await loginAs(app, 'customer-1');
+  const staffToken = await loginAs(app, 'staff.user');
+  const customerToken = await loginAs(app, 'moderator.user');
 
   const created = await app.inject({
     method: 'POST',

@@ -1,20 +1,38 @@
 import crypto from 'node:crypto';
 
-import { USER_ROLES, type UserRole } from '@crewpulse/contracts';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { compare, hash } from 'bcryptjs';
 import { z } from 'zod';
 
-const tokenSchema = z.string().startsWith('Bearer ').transform((value) => value.slice('Bearer '.length));
+import { env } from './env.js';
 
-const users = [
-  { id: 'staff-1', role: 'staff' },
-  { id: 'customer-1', role: 'customer' },
-  { id: 'worker-1', role: 'worker' },
-] as const;
+const tokenSchema = z
+  .string()
+  .startsWith('Bearer ')
+  .transform((value) => value.slice('Bearer '.length));
 
 const loginSchema = z.object({
-  userId: z.enum(users.map((user) => user.id) as [string, ...string[]]),
+  username: z.string().trim().min(1),
+  password: z.string().min(1),
 });
+
+const createUserSchema = z.object({
+  username: z.string().trim().min(3).max(64),
+  password: z.string().min(8).max(128),
+  role: z.enum(['staff', 'moderator']),
+});
+
+const apiRoleToDbRole = {
+  staff: 'STAFF',
+  moderator: 'MODERATOR',
+} as const;
+
+const dbRoleToApiRole = {
+  STAFF: 'staff',
+  MODERATOR: 'moderator',
+} as const;
+
+export type UserRole = keyof typeof apiRoleToDbRole;
 
 type Session = {
   token: string;
@@ -22,27 +40,87 @@ type Session = {
   role: UserRole;
 };
 
-const sessions = new Map<string, Session>();
+type AuthPrismaClient = {
+  user: {
+    findUnique: (args: {
+      where: { username?: string; id?: string };
+      select?: { id?: true; username?: true; passwordHash?: true; role?: true };
+    }) => Promise<null | {
+      id: string;
+      username: string;
+      passwordHash?: string;
+      role: 'STAFF' | 'MODERATOR';
+    }>;
+    create: (args: {
+      data: { username: string; passwordHash: string; role: 'STAFF' | 'MODERATOR' };
+      select: { id: true; username: true; role: true };
+    }) => Promise<{ id: string; username: string; role: 'STAFF' | 'MODERATOR' }>;
+  };
+};
 
-const rolesSet = new Set<string>(USER_ROLES);
+const sessions = new Map<string, Session>();
 
 export type AuthSession = Session;
 
-export const login = (userId: string): Session | null => {
-  const user = users.find((entry) => entry.id === userId);
+const buildSessionToken = () => {
+  const nonce = crypto.randomBytes(24).toString('hex');
+  return crypto.createHmac('sha256', env.AUTH_SESSION_SECRET).update(nonce).digest('hex');
+};
 
-  if (!user || !rolesSet.has(user.role)) {
+export const login = async (
+  prismaClient: AuthPrismaClient,
+  credentials: z.infer<typeof loginSchema>,
+): Promise<Session | null> => {
+  const user = await prismaClient.user.findUnique({
+    where: { username: credentials.username },
+    select: { id: true, username: true, passwordHash: true, role: true },
+  });
+
+  if (!user?.passwordHash) {
     return null;
   }
 
-  const token = crypto.randomBytes(24).toString('hex');
-  const session = { token, userId: user.id, role: user.role };
+  const passwordValid = await compare(credentials.password, user.passwordHash);
+
+  if (!passwordValid) {
+    return null;
+  }
+
+  const token = buildSessionToken();
+  const session = { token, userId: user.id, role: dbRoleToApiRole[user.role] };
   sessions.set(token, session);
 
   return session;
 };
 
+export const createUser = async (
+  prismaClient: AuthPrismaClient,
+  payload: z.infer<typeof createUserSchema>,
+): Promise<{ id: string; username: string; role: UserRole }> => {
+  const passwordHash = await hash(payload.password, 12);
+  const user = await prismaClient.user.create({
+    data: {
+      username: payload.username,
+      passwordHash,
+      role: apiRoleToDbRole[payload.role],
+    },
+    select: {
+      id: true,
+      username: true,
+      role: true,
+    },
+  });
+
+  return {
+    id: user.id,
+    username: user.username,
+    role: dbRoleToApiRole[user.role],
+  };
+};
+
 export const parseLoginPayload = (body: unknown) => loginSchema.safeParse(body);
+
+export const parseCreateUserPayload = (body: unknown) => createUserSchema.safeParse(body);
 
 export const getSessionFromRequest = (request: FastifyRequest): Session | null => {
   const header = request.headers.authorization;
@@ -81,5 +159,3 @@ export const requireRole =
 export const clearSessionsForTests = () => {
   sessions.clear();
 };
-
-export const listSeedUsers = () => users;
