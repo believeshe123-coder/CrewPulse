@@ -238,3 +238,32 @@ The seed script creates:
 - one NCNS-risk profile.
 
 These records are intended to validate dashboard and flag logic in development.
+
+## CI/CD
+
+CrewPulse uses GitHub Actions for continuous integration. The workflow is defined in `.github/workflows/ci.yml` and runs on every `push` and `pull_request`. The lint step is currently non-blocking while ESLint configuration is being finalized.
+
+Initial CI pipeline steps:
+
+1. Check out repository code.
+2. Set up pinned Node.js version (`20.11.1`).
+3. Install dependencies with lockfile (`npm ci`).
+4. Run lint and typecheck/build.
+5. Add test execution once a stable CI-safe root test command is configured.
+
+### GitHub branch protection setup
+
+To protect `main`:
+
+1. Go to **Settings → Branches → Add rule**.
+2. Set branch name pattern to `main`.
+3. Enable **Require status checks to pass before merging**.
+4. Select the CI check from this workflow.
+5. (Recommended) Enable **Require a pull request before merging** and **Require approvals**.
+
+### Enable GitHub Actions (if disabled)
+
+1. Open **Settings → Actions → General**.
+2. Set actions permissions to **Allow all actions and reusable workflows** (or your approved org list).
+3. Commit `.github/workflows/ci.yml` to the default branch.
+4. Open a PR and verify the **Actions** tab shows CI runs for the branch/PR.
