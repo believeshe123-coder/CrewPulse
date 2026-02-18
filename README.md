@@ -262,22 +262,42 @@ Initial CI pipeline steps:
 
 ## Deployment configuration (GitHub Pages)
 
-The GitHub Pages workflow (`.github/workflows/deploy-pages.yml`) builds the web app with a production API origin passed as `VITE_API_BASE_URL`.
+The GitHub Pages workflow (`.github/workflows/deploy-pages.yml`) supports two API base URL modes.
 
-Required repository configuration:
+### `VITE_API_BASE_URL` is optional if using same-origin fallback
+
+If `VITE_API_BASE_URL` is provided, the workflow validates it (`http(s)` origin with no trailing slash) and injects it into the build.
+
+If `VITE_API_BASE_URL` is omitted:
+
+- In local development (`npm run dev:web`), the app defaults to `http://localhost:4000`.
+- In production builds, the app falls back to `window.location.origin` (same-origin API routing) and logs a warning in the browser console.
+
+### When you should still set `VITE_API_BASE_URL`
+
+Set `VITE_API_BASE_URL` when your API is on a different origin than the deployed web app (for example, web on GitHub Pages and API on another domain).
+
+You can omit it only when your deployment routes API requests from the same origin as the web app.
+
+### Mode A: explicit API origin via `VITE_API_BASE_URL`
 
 1. Open **GitHub → Repository → Settings → Secrets and variables → Actions → Variables**.
 2. Create a repository variable named **`VITE_API_BASE_URL`**.
 3. Set it to your deployed API origin (example: `https://api.example.com`) with **no trailing slash**.
 
-The deploy workflow validates this value (present, `http(s)` origin, and no trailing slash) and injects it into the build step:
+Build env example:
 
-- `VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}`
+```yaml
+env:
+  VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+```
 
-Important behavior:
+### Mode B: no variable + same-origin API routing
 
-- Local development can still fall back to `http://localhost:4000` when `npm run dev:web` runs without `VITE_API_BASE_URL`.
-- Production builds must define `VITE_API_BASE_URL`; otherwise the app intentionally throws an error to prevent shipping a `localhost` API target.
+- Do not define `VITE_API_BASE_URL` in repository variables.
+- Ensure your production host serves/routes API endpoints from the same origin as the web app, so requests resolve against `window.location.origin`.
+
+Example: if the web app loads from `https://ops.example.com`, API calls target `https://ops.example.com/<api-path>`.
 
 ### GitHub branch protection setup
 
