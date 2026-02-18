@@ -155,6 +155,104 @@ test('shared endpoints allow both moderator and staff', async (t) => {
   });
   assert.equal(assignmentsForModerator.statusCode, 200);
 });
+
+test('POST /groups is moderator-only', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const moderatorToken = await loginAs(app, 'moderator.user');
+  const staffToken = await loginAs(app, 'staff.user');
+
+  const allowed = await app.inject({
+    method: 'POST',
+    url: '/groups',
+    headers: { authorization: `Bearer ${moderatorToken}` },
+    payload: { name: 'Crew Alpha' },
+  });
+  assert.equal(allowed.statusCode, 201);
+
+  const denied = await app.inject({
+    method: 'POST',
+    url: '/groups',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: { name: 'Crew Beta' },
+  });
+  assert.equal(denied.statusCode, 403);
+});
+
+test('POST /groups/:id/join prevents duplicates and lists memberships in /groups/me', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const moderatorToken = await loginAs(app, 'moderator.user');
+  const staffToken = await loginAs(app, 'staff.user');
+
+  const createdGroup = await app.inject({
+    method: 'POST',
+    url: '/groups',
+    headers: { authorization: `Bearer ${moderatorToken}` },
+    payload: { name: 'Night Shift' },
+  });
+  assert.equal(createdGroup.statusCode, 201);
+  const groupId = (createdGroup.json() as { id: string }).id;
+
+  const firstJoin = await app.inject({
+    method: 'POST',
+    url: `/groups/${groupId}/join`,
+    headers: { authorization: `Bearer ${staffToken}` },
+  });
+  assert.equal(firstJoin.statusCode, 201);
+
+  const duplicateJoin = await app.inject({
+    method: 'POST',
+    url: `/groups/${groupId}/join`,
+    headers: { authorization: `Bearer ${staffToken}` },
+  });
+  assert.equal(duplicateJoin.statusCode, 409);
+
+  const myGroups = await app.inject({
+    method: 'GET',
+    url: '/groups/me',
+    headers: { authorization: `Bearer ${staffToken}` },
+  });
+  assert.equal(myGroups.statusCode, 200);
+  const groupsPayload = myGroups.json() as Array<{ id: string }>;
+  assert.ok(groupsPayload.some((group) => group.id === groupId));
+
+  const moderatorGroups = await app.inject({
+    method: 'GET',
+    url: '/groups/me',
+    headers: { authorization: `Bearer ${moderatorToken}` },
+  });
+  assert.equal(moderatorGroups.statusCode, 200);
+  const moderatorPayload = moderatorGroups.json() as Array<{ id: string }>;
+  assert.ok(moderatorPayload.every((group) => group.id !== groupId));
+});
+
+test('POST /groups/:id/join returns 404 for unknown groups', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
+  t.after(async () => {
+    await app.close();
+  });
+
+  const staffToken = await loginAs(app, 'staff.user');
+
+  const joinMissing = await app.inject({
+    method: 'POST',
+    url: '/groups/missing-group/join',
+    headers: { authorization: `Bearer ${staffToken}` },
+  });
+
+  assert.equal(joinMissing.statusCode, 404);
+});
+
 const createAssignmentForTests = async (
   app: ReturnType<typeof buildApp>,
   staffToken: string,
@@ -290,7 +388,11 @@ const buildWorkersPrismaMock = () => {
     ],
   ]);
 
+  const groups = new Map<string, any>();
+  const memberships = new Map<string, any>();
+
   let nextWorkerId = 4;
+  let nextGroupId = 1;
 
   return {
     user: {
@@ -375,6 +477,47 @@ const buildWorkersPrismaMock = () => {
         };
 
         workers.set(id, created);
+        return created;
+      },
+    },
+    group: {
+      create: async ({ data }: { data: { name: string; createdByUserId: string } }) => {
+        const created = {
+          id: `group-${nextGroupId++}`,
+          name: data.name,
+          createdByUserId: data.createdByUserId,
+          createdAt: new Date('2026-02-01T00:00:00.000Z'),
+          updatedAt: new Date('2026-02-01T00:00:00.000Z'),
+        };
+        groups.set(created.id, created);
+        return created;
+      },
+      findMany: async ({ where }: { where: { memberships: { some: { userId: string } } } }) => {
+        const userId = where.memberships.some.userId;
+        return Array.from(groups.values())
+          .filter((group) => memberships.has(`${group.id}:${userId}`))
+          .map((group) => ({
+            ...group,
+            memberships: [memberships.get(`${group.id}:${userId}`)],
+          }));
+      },
+      findUnique: async ({ where }: { where: { id: string } }) => {
+        const group = groups.get(where.id);
+        return group ? { id: group.id } : null;
+      },
+    },
+    groupMembership: {
+      findUnique: async ({ where }: { where: { groupId_userId: { groupId: string; userId: string } } }) => {
+        return memberships.get(`${where.groupId_userId.groupId}:${where.groupId_userId.userId}`) ?? null;
+      },
+      create: async ({ data }: { data: { groupId: string; userId: string; roleInGroup?: 'MEMBER' } }) => {
+        const created = {
+          groupId: data.groupId,
+          userId: data.userId,
+          roleInGroup: data.roleInGroup ?? 'MEMBER',
+          joinedAt: new Date('2026-02-02T00:00:00.000Z'),
+        };
+        memberships.set(`${data.groupId}:${data.userId}`, created);
         return created;
       },
     },
