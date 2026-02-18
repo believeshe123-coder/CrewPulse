@@ -69,12 +69,17 @@ export const LandingPage = () => {
           )}
 
           <Flex direction="column" gap="2">
+            <Link onClick={() => navigate('/staff/dashboard')}>Staff dashboard (staff-only)</Link>
             <Link onClick={() => navigate('/workers/worker-1')}>Worker profile (staff-only)</Link>
             <Link onClick={() => navigate('/workers/worker-1/profile-analytics')}>
               Worker analytics (staff-only; worker self denied)
             </Link>
-            <Link onClick={() => navigate('/assignments')}>Assignments list + create (staff-only)</Link>
-            <Link onClick={() => navigate('/assignments/a-1')}>Assignment detail + events/ratings</Link>
+            <Link onClick={() => navigate('/assignments')}>
+              Assignments list + create (staff-only)
+            </Link>
+            <Link onClick={() => navigate('/assignments/a-1')}>
+              Assignment detail + events/ratings
+            </Link>
           </Flex>
         </Flex>
       </Card>

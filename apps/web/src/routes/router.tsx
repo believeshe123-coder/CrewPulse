@@ -4,6 +4,7 @@ import { AssignmentDetailPage } from './AssignmentDetailPage';
 import { AssignmentsPage } from './AssignmentsPage';
 import { LandingPage } from './LandingPage';
 import { RoleGuard } from './RoleGuard';
+import { StaffDashboardPage } from './StaffDashboardPage';
 import { WorkerAnalyticsPage } from './WorkerAnalyticsPage';
 import { WorkerProfilePage } from './WorkerProfilePage';
 
@@ -15,6 +16,10 @@ export const router = createBrowserRouter([
   {
     element: <RoleGuard allowedRoles={['staff']} />,
     children: [
+      {
+        path: '/staff/dashboard',
+        element: <StaffDashboardPage />,
+      },
       {
         path: '/workers/:id',
         element: <WorkerProfilePage />,
