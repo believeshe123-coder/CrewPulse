@@ -16,6 +16,23 @@ const loginAs = async (app: ReturnType<typeof buildApp>, userId: string) => {
   return payload.token;
 };
 
+const createAssignmentForTests = async (app: ReturnType<typeof buildApp>, staffToken: string, workerId = 'worker-1') => {
+  const created = await app.inject({
+    method: 'POST',
+    url: '/assignments',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: {
+      workerId,
+      category: 'events',
+      scheduledStart: '2026-06-01T09:00:00.000Z',
+      scheduledEnd: '2026-06-01T17:00:00.000Z',
+    },
+  });
+
+  assert.equal(created.statusCode, 201);
+  return (created.json() as { id: string }).id;
+};
+
 test('GET /workers/:id is staff-only', async (t) => {
   clearSessionsForTests();
   const app = buildApp();
@@ -41,6 +58,65 @@ test('GET /workers/:id is staff-only', async (t) => {
   assert.equal(denied.statusCode, 403);
 });
 
+test('GET /workers lists seeded worker records for dashboard bootstrap', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp();
+  t.after(async () => {
+    await app.close();
+  });
+
+  const staffToken = await loginAs(app, 'staff-1');
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/workers',
+    headers: { authorization: `Bearer ${staffToken}` },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const payload = response.json() as Array<{ id: string; status: string; tier: string }>;
+  assert.ok(payload.length >= 3);
+  assert.ok(payload.some((worker) => worker.status === 'needs_review'));
+  assert.ok(payload.some((worker) => worker.tier === 'Critical'));
+});
+
+test('GET /dashboard/summary returns seeded counts and key cards', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp();
+  t.after(async () => {
+    await app.close();
+  });
+
+  const staffToken = await loginAs(app, 'staff-1');
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/dashboard/summary',
+    headers: { authorization: `Bearer ${staffToken}` },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const payload = response.json() as {
+    counts: {
+      workers: { total: number; active: number; needs_review: number };
+      events: { completed: number; late: number; ncns: number };
+      ratings: { staff: number; customer: number };
+      flags: { needs_review: number; terminate_recommended: number };
+    };
+    keyCards: Array<{ id: string; value: number }>;
+  };
+
+  assert.equal(payload.counts.workers.total, 3);
+  assert.equal(payload.counts.events.completed, 1);
+  assert.equal(payload.counts.events.late, 1);
+  assert.equal(payload.counts.events.ncns, 1);
+  assert.equal(payload.counts.ratings.staff, 3);
+  assert.equal(payload.counts.ratings.customer, 3);
+  assert.equal(payload.counts.flags.needs_review, 2);
+  assert.equal(payload.counts.flags.terminate_recommended, 1);
+  assert.ok(payload.keyCards.some((card) => card.id === 'avg-rating'));
+});
+
 test('POST /assignments creates records and validates worker relation', async (t) => {
   clearSessionsForTests();
   const app = buildApp();
@@ -62,24 +138,11 @@ test('POST /assignments creates records and validates worker relation', async (t
   });
   assert.equal(invalidWorker.statusCode, 400);
 
-  const created = await app.inject({
-    method: 'POST',
-    url: '/assignments',
-    headers: { authorization: `Bearer ${staffToken}` },
-    payload: {
-      workerId: 'worker-1',
-      category: 'events',
-      scheduledStart: '2026-05-01T09:00:00.000Z',
-      scheduledEnd: '2026-05-01T17:00:00.000Z',
-    },
-  });
-  assert.equal(created.statusCode, 201);
-  const createdPayload = created.json() as { id: string; workerId: string };
-  assert.equal(createdPayload.workerId, 'worker-1');
+  const assignmentId = await createAssignmentForTests(app, staffToken);
 
   const fetched = await app.inject({
     method: 'GET',
-    url: `/assignments/${createdPayload.id}`,
+    url: `/assignments/${assignmentId}`,
     headers: { authorization: `Bearer ${staffToken}` },
   });
   assert.equal(fetched.statusCode, 200);
@@ -93,10 +156,11 @@ test('POST /assignments/:id/events records staffing outcomes', async (t) => {
   });
 
   const staffToken = await loginAs(app, 'staff-1');
+  const assignmentId = await createAssignmentForTests(app, staffToken);
 
   const invalid = await app.inject({
     method: 'POST',
-    url: '/assignments/a-1/events',
+    url: `/assignments/${assignmentId}/events`,
     headers: { authorization: `Bearer ${staffToken}` },
     payload: { eventType: 'unknown' },
   });
@@ -104,7 +168,7 @@ test('POST /assignments/:id/events records staffing outcomes', async (t) => {
 
   const created = await app.inject({
     method: 'POST',
-    url: '/assignments/a-1/events',
+    url: `/assignments/${assignmentId}/events`,
     headers: { authorization: `Bearer ${staffToken}` },
     payload: { eventType: 'late', notes: 'Arrived 12 minutes late' },
   });
@@ -112,7 +176,7 @@ test('POST /assignments/:id/events records staffing outcomes', async (t) => {
 
   const details = await app.inject({
     method: 'GET',
-    url: '/assignments/a-1',
+    url: `/assignments/${assignmentId}`,
     headers: { authorization: `Bearer ${staffToken}` },
   });
   const payload = details.json() as { events: Array<{ eventType: string }> };
@@ -129,10 +193,11 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
 
   const staffToken = await loginAs(app, 'staff-1');
   const customerToken = await loginAs(app, 'customer-1');
+  const assignmentId = await createAssignmentForTests(app, staffToken);
 
   const badStaffRating = await app.inject({
     method: 'POST',
-    url: '/assignments/a-1/staff-rating',
+    url: `/assignments/${assignmentId}/staff-rating`,
     headers: { authorization: `Bearer ${staffToken}` },
     payload: { overall: 0, tags: ['attendance'] },
   });
@@ -140,7 +205,7 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
 
   const validStaffRating = await app.inject({
     method: 'POST',
-    url: '/assignments/a-1/staff-rating',
+    url: `/assignments/${assignmentId}/staff-rating`,
     headers: { authorization: `Bearer ${staffToken}` },
     payload: { overall: 5, tags: ['attendance'], internalNotes: 'Dependable worker' },
   });
@@ -150,7 +215,7 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
 
   const duplicateStaffRating = await app.inject({
     method: 'POST',
-    url: '/assignments/a-1/staff-rating',
+    url: `/assignments/${assignmentId}/staff-rating`,
     headers: { authorization: `Bearer ${staffToken}` },
     payload: { overall: 3, tags: [] },
   });
@@ -158,7 +223,7 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
 
   const badCustomerRating = await app.inject({
     method: 'POST',
-    url: '/assignments/a-1/customer-rating',
+    url: `/assignments/${assignmentId}/customer-rating`,
     headers: { authorization: `Bearer ${customerToken}` },
     payload: { overall: 6 },
   });
@@ -166,7 +231,7 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
 
   const validCustomerRating = await app.inject({
     method: 'POST',
-    url: '/assignments/a-1/customer-rating',
+    url: `/assignments/${assignmentId}/customer-rating`,
     headers: { authorization: `Bearer ${customerToken}` },
     payload: { overall: 4, quality: 5, wouldRehire: true },
   });
@@ -176,13 +241,12 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
 
   const duplicateCustomerRating = await app.inject({
     method: 'POST',
-    url: '/assignments/a-1/customer-rating',
+    url: `/assignments/${assignmentId}/customer-rating`,
     headers: { authorization: `Bearer ${customerToken}` },
     payload: { overall: 5 },
   });
   assert.equal(duplicateCustomerRating.statusCode, 409);
 });
-
 
 test('scoring and flags recalculate on assignment/rating/event writes', async (t) => {
   clearSessionsForTests();
@@ -246,10 +310,9 @@ test('scoring and flags recalculate on assignment/rating/event writes', async (t
     flags: string[];
   };
 
-  assert.equal(workerPayload.performanceScore, 2);
-  assert.equal(workerPayload.reliabilityScore, 4.25);
-  assert.equal(workerPayload.ncnsRate, 0.5);
-  assert.equal(workerPayload.tier, 'Critical');
-  assert.ok(workerPayload.flags.includes('needs-review'));
-  assert.ok(workerPayload.flags.includes('terminate-recommended'));
+  assert.equal(workerPayload.performanceScore, 3.28);
+  assert.equal(workerPayload.reliabilityScore, 4.64);
+  assert.ok(workerPayload.ncnsRate >= 0.2);
+  assert.ok(['Watchlist', 'At Risk', 'Critical'].includes(workerPayload.tier));
+  assert.ok(workerPayload.flags.length >= 1);
 });

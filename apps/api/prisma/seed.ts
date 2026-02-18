@@ -8,7 +8,13 @@ async function main() {
     update: {
       firstName: 'Avery',
       lastName: 'Coleman',
-      status: 'ACTIVE'
+      status: 'ACTIVE',
+      tier: 'STRONG',
+      overallScore: '4.85',
+      performanceScore: '4.90',
+      reliabilityScore: '4.80',
+      lateRate: '0.0000',
+      ncnsRate: '0.0000'
     },
     create: {
       employeeCode: 'W-1001',
@@ -16,7 +22,13 @@ async function main() {
       lastName: 'Coleman',
       phone: '555-0101',
       email: 'avery.coleman@crewpulse.local',
-      status: 'ACTIVE'
+      status: 'ACTIVE',
+      tier: 'STRONG',
+      overallScore: '4.85',
+      performanceScore: '4.90',
+      reliabilityScore: '4.80',
+      lateRate: '0.0000',
+      ncnsRate: '0.0000'
     }
   });
 
@@ -25,7 +37,13 @@ async function main() {
     update: {
       firstName: 'Jordan',
       lastName: 'Mills',
-      status: 'NEEDS_REVIEW'
+      status: 'NEEDS_REVIEW',
+      tier: 'WATCHLIST',
+      overallScore: '3.05',
+      performanceScore: '3.10',
+      reliabilityScore: '3.00',
+      lateRate: '0.4000',
+      ncnsRate: '0.0000'
     },
     create: {
       employeeCode: 'W-1002',
@@ -33,7 +51,13 @@ async function main() {
       lastName: 'Mills',
       phone: '555-0102',
       email: 'jordan.mills@crewpulse.local',
-      status: 'NEEDS_REVIEW'
+      status: 'NEEDS_REVIEW',
+      tier: 'WATCHLIST',
+      overallScore: '3.05',
+      performanceScore: '3.10',
+      reliabilityScore: '3.00',
+      lateRate: '0.4000',
+      ncnsRate: '0.0000'
     }
   });
 
@@ -42,7 +66,13 @@ async function main() {
     update: {
       firstName: 'Taylor',
       lastName: 'Reed',
-      status: 'HOLD'
+      status: 'HOLD',
+      tier: 'CRITICAL',
+      overallScore: '1.90',
+      performanceScore: '2.00',
+      reliabilityScore: '1.80',
+      lateRate: '0.0000',
+      ncnsRate: '0.5000'
     },
     create: {
       employeeCode: 'W-1003',
@@ -50,7 +80,13 @@ async function main() {
       lastName: 'Reed',
       phone: '555-0103',
       email: 'taylor.reed@crewpulse.local',
-      status: 'HOLD'
+      status: 'HOLD',
+      tier: 'CRITICAL',
+      overallScore: '1.90',
+      performanceScore: '2.00',
+      reliabilityScore: '1.80',
+      lateRate: '0.0000',
+      ncnsRate: '0.5000'
     }
   });
 

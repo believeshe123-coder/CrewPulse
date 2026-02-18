@@ -14,6 +14,14 @@ enum WorkerStatus {
   TERMINATE
 }
 
+enum WorkerTier {
+  ELITE
+  STRONG
+  SOLID
+  WATCHLIST
+  CRITICAL
+}
+
 enum AssignmentCategory {
   WAREHOUSE
   CLEANUP
@@ -52,6 +60,12 @@ model Worker {
   phone        String?
   email        String?  @unique
   status       WorkerStatus @default(ACTIVE)
+  tier         WorkerTier   @default(SOLID)
+  overallScore Decimal      @default(0) @db.Decimal(4, 2)
+  performanceScore Decimal  @default(0) @db.Decimal(4, 2)
+  reliabilityScore Decimal  @default(0) @db.Decimal(4, 2)
+  lateRate     Decimal      @default(0) @db.Decimal(5, 4)
+  ncnsRate     Decimal      @default(0) @db.Decimal(5, 4)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
