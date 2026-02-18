@@ -241,7 +241,7 @@ These records are intended to validate dashboard and flag logic in development.
 
 ## CI/CD
 
-CrewPulse uses GitHub Actions for continuous integration. The workflow is defined in `.github/workflows/ci.yml` and runs on every `push` and `pull_request`.
+CrewPulse uses GitHub Actions for continuous integration. The workflow is defined in `.github/workflows/ci.yml` and runs on every `push` and `pull_request`. The lint step is currently non-blocking while ESLint configuration is being finalized.
 
 Initial CI pipeline steps:
 
