@@ -80,6 +80,140 @@ test('GET /workers lists seeded worker records for dashboard bootstrap', async (
   assert.ok(payload.some((worker) => worker.tier === 'Critical'));
 });
 
+
+
+test('POST /workers allows staff to create worker', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp();
+  t.after(async () => {
+    await app.close();
+  });
+
+  const staffToken = await loginAs(app, 'staff-1');
+
+  const created = await app.inject({
+    method: 'POST',
+    url: '/workers',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: {
+      employeeCode: 'EMP-NEW-001',
+      firstName: 'Avery',
+      lastName: 'Stone',
+      email: 'avery.stone@example.com',
+      phone: '+15555550123',
+      status: 'active',
+      tier: 'Strong',
+    },
+  });
+
+  assert.equal(created.statusCode, 201);
+  const payload = created.json() as {
+    id: string;
+    name: string;
+    status: string;
+    score: number;
+    performanceScore: number;
+    reliabilityScore: number;
+    lateRate: number;
+    ncnsRate: number;
+    tier: string;
+    flags: string[];
+  };
+
+  assert.ok(payload.id.startsWith('worker-'));
+  assert.equal(payload.name, 'Avery Stone');
+  assert.equal(payload.status, 'active');
+  assert.equal(payload.score, 0);
+  assert.equal(payload.performanceScore, 0);
+  assert.equal(payload.reliabilityScore, 0);
+  assert.equal(payload.lateRate, 0);
+  assert.equal(payload.ncnsRate, 0);
+  assert.equal(payload.tier, 'Strong');
+  assert.deepEqual(payload.flags, []);
+});
+
+test('POST /workers rejects non-staff roles', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp();
+  t.after(async () => {
+    await app.close();
+  });
+
+  const customerToken = await loginAs(app, 'customer-1');
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/workers',
+    headers: { authorization: `Bearer ${customerToken}` },
+    payload: {
+      employeeCode: 'EMP-NEW-002',
+      firstName: 'Blake',
+      lastName: 'Mason',
+    },
+  });
+
+  assert.equal(response.statusCode, 403);
+});
+
+test('POST /workers validates worker payload', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp();
+  t.after(async () => {
+    await app.close();
+  });
+
+  const staffToken = await loginAs(app, 'staff-1');
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/workers',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: {
+      employeeCode: '',
+      firstName: 'Casey',
+      lastName: 'King',
+      email: 'not-an-email',
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+});
+
+test('POST /workers enforces unique employeeCode and email', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp();
+  t.after(async () => {
+    await app.close();
+  });
+
+  const staffToken = await loginAs(app, 'staff-1');
+
+  const duplicateEmployeeCode = await app.inject({
+    method: 'POST',
+    url: '/workers',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: {
+      employeeCode: 'EMP-001',
+      firstName: 'Devon',
+      lastName: 'Cole',
+      email: 'devon.cole@example.com',
+    },
+  });
+  assert.equal(duplicateEmployeeCode.statusCode, 409);
+
+  const duplicateEmail = await app.inject({
+    method: 'POST',
+    url: '/workers',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: {
+      employeeCode: 'EMP-NEW-003',
+      firstName: 'Morgan',
+      lastName: 'West',
+      email: 'jordan.miles@example.com',
+    },
+  });
+  assert.equal(duplicateEmail.statusCode, 409);
+});
 test('GET /dashboard/summary returns seeded counts and key cards', async (t) => {
   clearSessionsForTests();
   const app = buildApp();
