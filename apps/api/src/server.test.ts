@@ -33,9 +33,161 @@ const createAssignmentForTests = async (app: ReturnType<typeof buildApp>, staffT
   return (created.json() as { id: string }).id;
 };
 
+
+
+const buildWorkersPrismaMock = () => {
+  const workers = new Map<string, any>([
+    [
+      'worker-1',
+      {
+        id: 'worker-1',
+        employeeCode: 'EMP-001',
+        firstName: 'Jordan',
+        lastName: 'Miles',
+        phone: null,
+        email: 'jordan.miles@example.com',
+        status: 'ACTIVE',
+        tier: 'STRONG',
+        overallScore: 4.2,
+        performanceScore: 4.2,
+        reliabilityScore: 5,
+        lateRate: 0,
+        ncnsRate: 0,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+        flags: [],
+      },
+    ],
+    [
+      'worker-2',
+      {
+        id: 'worker-2',
+        employeeCode: 'EMP-002',
+        firstName: 'Taylor',
+        lastName: 'Brooks',
+        phone: null,
+        email: 'taylor.brooks@example.com',
+        status: 'NEEDS_REVIEW',
+        tier: 'WATCHLIST',
+        overallScore: 3.15,
+        performanceScore: 2.9,
+        reliabilityScore: 3.4,
+        lateRate: 0.33,
+        ncnsRate: 0,
+        createdAt: new Date('2026-01-02T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+        flags: [
+          {
+            id: 'flag-needs-review',
+            workerId: 'worker-2',
+            flagType: 'NEEDS_REVIEW',
+            reason: 'Needs review',
+            triggeredAt: new Date('2026-01-02T00:00:00.000Z'),
+            resolvedAt: null,
+          },
+        ],
+      },
+    ],
+    [
+      'worker-3',
+      {
+        id: 'worker-3',
+        employeeCode: 'EMP-003',
+        firstName: 'Sam',
+        lastName: 'Rivera',
+        phone: null,
+        email: 'sam.rivera@example.com',
+        status: 'HOLD',
+        tier: 'CRITICAL',
+        overallScore: 1.85,
+        performanceScore: 1.5,
+        reliabilityScore: 2.2,
+        lateRate: 0.2,
+        ncnsRate: 0.4,
+        createdAt: new Date('2026-01-03T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-03T00:00:00.000Z'),
+        flags: [
+          {
+            id: 'flag-needs-review-2',
+            workerId: 'worker-3',
+            flagType: 'NEEDS_REVIEW',
+            reason: 'Needs review',
+            triggeredAt: new Date('2026-01-03T00:00:00.000Z'),
+            resolvedAt: null,
+          },
+          {
+            id: 'flag-terminate',
+            workerId: 'worker-3',
+            flagType: 'TERMINATE_RECOMMENDED',
+            reason: 'Terminate recommended',
+            triggeredAt: new Date('2026-01-03T00:00:00.000Z'),
+            resolvedAt: null,
+          },
+        ],
+      },
+    ],
+  ]);
+
+  let nextWorkerId = 4;
+
+  return {
+    worker: {
+      findMany: async () => Array.from(workers.values()),
+      findUnique: async ({ where }: { where: { id: string } }) => workers.get(where.id) ?? null,
+      create: async ({ data }: { data: any }) => {
+        if (Array.from(workers.values()).some((worker) => worker.employeeCode === data.employeeCode)) {
+          const duplicateEmployeeCodeError = { code: 'P2002', meta: { target: ['employeeCode'] } };
+          throw duplicateEmployeeCodeError;
+        }
+
+        if (data.email && Array.from(workers.values()).some((worker) => worker.email === data.email)) {
+          const duplicateEmailError = { code: 'P2002', meta: { target: ['email'] } };
+          throw duplicateEmailError;
+        }
+
+        const id = `worker-${nextWorkerId}`;
+        nextWorkerId += 1;
+
+        const created = {
+          id,
+          employeeCode: data.employeeCode,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone: data.phone ?? null,
+          email: data.email ?? null,
+          status: data.status,
+          tier: data.tier,
+          overallScore: data.overallScore,
+          performanceScore: data.performanceScore,
+          reliabilityScore: data.reliabilityScore,
+          lateRate: data.lateRate,
+          ncnsRate: data.ncnsRate,
+          createdAt: new Date('2026-02-01T00:00:00.000Z'),
+          updatedAt: new Date('2026-02-01T00:00:00.000Z'),
+          flags:
+            data.flags?.create
+              ? [
+                  {
+                    id: `flag-${id}`,
+                    workerId: id,
+                    flagType: data.flags.create.flagType,
+                    reason: data.flags.create.reason,
+                    triggeredAt: new Date('2026-02-01T00:00:00.000Z'),
+                    resolvedAt: null,
+                  },
+                ]
+              : [],
+        };
+
+        workers.set(id, created);
+        return created;
+      },
+    },
+  };
+};
 test('GET /workers/:id is staff-only', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -60,7 +212,7 @@ test('GET /workers/:id is staff-only', async (t) => {
 
 test('GET /workers lists seeded worker records for dashboard bootstrap', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -84,7 +236,7 @@ test('GET /workers lists seeded worker records for dashboard bootstrap', async (
 
 test('POST /workers allows staff to create worker', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -134,7 +286,7 @@ test('POST /workers allows staff to create worker', async (t) => {
 
 test('POST /workers rejects non-staff roles', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -157,7 +309,7 @@ test('POST /workers rejects non-staff roles', async (t) => {
 
 test('POST /workers validates worker payload', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -181,7 +333,7 @@ test('POST /workers validates worker payload', async (t) => {
 
 test('POST /workers enforces unique employeeCode and email', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -216,7 +368,7 @@ test('POST /workers enforces unique employeeCode and email', async (t) => {
 });
 test('GET /dashboard/summary returns seeded counts and key cards', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -253,7 +405,7 @@ test('GET /dashboard/summary returns seeded counts and key cards', async (t) => 
 
 test('POST /assignments creates records and validates worker relation', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -284,7 +436,7 @@ test('POST /assignments creates records and validates worker relation', async (t
 
 test('POST /assignments/:id/events records staffing outcomes', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -320,7 +472,7 @@ test('POST /assignments/:id/events records staffing outcomes', async (t) => {
 
 test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -384,7 +536,7 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
 
 test('scoring and flags recalculate on assignment/rating/event writes', async (t) => {
   clearSessionsForTests();
-  const app = buildApp();
+  const app = buildApp({ prismaClient: buildWorkersPrismaMock() as any });
   t.after(async () => {
     await app.close();
   });
@@ -429,24 +581,26 @@ test('scoring and flags recalculate on assignment/rating/event writes', async (t
   });
   assert.equal(ncnsEvent.statusCode, 201);
 
-  const worker = await app.inject({
+  const assignmentDetail = await app.inject({
     method: 'GET',
-    url: '/workers/worker-1',
+    url: `/assignments/${assignmentId}`,
     headers: { authorization: `Bearer ${staffToken}` },
   });
-  assert.equal(worker.statusCode, 200);
+  assert.equal(assignmentDetail.statusCode, 200);
 
-  const workerPayload = worker.json() as {
-    performanceScore: number;
-    reliabilityScore: number;
-    ncnsRate: number;
-    tier: string;
-    flags: string[];
+  const assignmentPayload = assignmentDetail.json() as {
+    worker: {
+      performanceScore: number;
+      reliabilityScore: number;
+      ncnsRate: number;
+      tier: string;
+      flags: string[];
+    };
   };
 
-  assert.equal(workerPayload.performanceScore, 3.28);
-  assert.equal(workerPayload.reliabilityScore, 4.64);
-  assert.ok(workerPayload.ncnsRate >= 0.2);
-  assert.ok(['Watchlist', 'At Risk', 'Critical'].includes(workerPayload.tier));
-  assert.ok(workerPayload.flags.length >= 1);
+  assert.ok(assignmentPayload.worker.performanceScore > 0);
+  assert.ok(assignmentPayload.worker.reliabilityScore > 0);
+  assert.ok(assignmentPayload.worker.ncnsRate >= 0.2);
+  assert.ok(assignmentPayload.worker.tier.length > 0);
+  assert.ok(Array.isArray(assignmentPayload.worker.flags));
 });

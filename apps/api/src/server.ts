@@ -1,4 +1,5 @@
 import cors from '@fastify/cors';
+import { PrismaClient } from '@prisma/client';
 import type { UserRole } from '@crewpulse/contracts';
 import Fastify from 'fastify';
 import { z } from 'zod';
@@ -67,6 +68,62 @@ const createCustomerRatingSchema = z.object({
   comments: z.string().min(1).max(1000).optional(),
 });
 
+
+const workerStatusToApi = {
+  ACTIVE: 'active',
+  NEEDS_REVIEW: 'needs_review',
+  HOLD: 'hold',
+  TERMINATE: 'terminate',
+} as const;
+
+const workerTierToApi = {
+  ELITE: 'Elite',
+  STRONG: 'Strong',
+  SOLID: 'Solid',
+  WATCHLIST: 'Watchlist',
+  CRITICAL: 'Critical',
+} as const;
+
+const flagTypeToApi = {
+  NEEDS_REVIEW: 'needs-review',
+  TERMINATE_RECOMMENDED: 'terminate-recommended',
+} as const;
+
+const mapPrismaWorkerToResponse = (worker: WorkerWithFlags): Worker => ({
+  id: worker.id,
+  name: `${worker.firstName} ${worker.lastName}`,
+  status: workerStatusToApi[worker.status],
+  score: Number(worker.overallScore),
+  performanceScore: Number(worker.performanceScore),
+  reliabilityScore: Number(worker.reliabilityScore),
+  lateRate: Number(worker.lateRate),
+  ncnsRate: Number(worker.ncnsRate),
+  tier: workerTierToApi[worker.tier],
+  flags: worker.flags.filter((flag) => flag.resolvedAt === null).map((flag) => flagTypeToApi[flag.flagType]),
+});
+
+const mapApiStatusToPrisma = (status: z.infer<typeof createWorkerSchema>['status']): 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE' => {
+  if (!status) {
+    return 'ACTIVE';
+  }
+
+  return status.toUpperCase() as 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE';
+};
+
+const mapApiTierToPrisma = (tier: z.infer<typeof createWorkerSchema>['tier']): 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL' => {
+  if (!tier) {
+    return 'SOLID';
+  }
+
+  const normalizedTier = tier.replace(/\s+/g, '_').toUpperCase();
+
+  if (normalizedTier === 'AT_RISK') {
+    return 'WATCHLIST';
+  }
+
+  return normalizedTier as 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL';
+};
+
 type Worker = {
   id: string;
   name: string;
@@ -78,6 +135,56 @@ type Worker = {
   ncnsRate: number;
   tier: string;
   flags: string[];
+};
+
+
+
+type WorkerWithFlags = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  status: 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE';
+  overallScore: unknown;
+  performanceScore: unknown;
+  reliabilityScore: unknown;
+  lateRate: unknown;
+  ncnsRate: unknown;
+  tier: 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL';
+  flags: Array<{ flagType: 'NEEDS_REVIEW' | 'TERMINATE_RECOMMENDED'; resolvedAt: Date | null }>;
+};
+
+type WorkersPrismaClient = {
+  $disconnect?: () => Promise<void>;
+  worker: {
+    findMany: (args: {
+      include: { flags: true };
+      orderBy: Array<{ createdAt?: 'asc' | 'desc'; employeeCode?: 'asc' | 'desc' }>;
+    }) => Promise<WorkerWithFlags[]>;
+    findUnique: (args: { where: { id: string }; include: { flags: true } }) => Promise<WorkerWithFlags | null>;
+    create: (args: {
+      data: {
+        employeeCode: string;
+        firstName: string;
+        lastName: string;
+        phone?: string;
+        email?: string;
+        status: 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE';
+        tier: 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL';
+        overallScore: number;
+        performanceScore: number;
+        reliabilityScore: number;
+        lateRate: number;
+        ncnsRate: number;
+        flags?: {
+          create: {
+            flagType: 'NEEDS_REVIEW';
+            reason: string;
+          };
+        };
+      };
+      include: { flags: true };
+    }) => Promise<WorkerWithFlags>;
+  };
 };
 
 type WorkerRecord = Worker & {
@@ -526,8 +633,15 @@ const buildDashboardSummary = () => {
   };
 };
 
-export const buildApp = () => {
-  const app = Fastify({ logger: true });
+export const buildApp = (deps: { prismaClient?: WorkersPrismaClient } = {}) => {
+  const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
+  const prismaClient: WorkersPrismaClient = (deps.prismaClient ?? new PrismaClient()) as unknown as WorkersPrismaClient;
+
+  app.addHook('onClose', async () => {
+    if (!deps.prismaClient && prismaClient.$disconnect) {
+      await prismaClient.$disconnect();
+    }
+  });
 
   void app.register(cors, {
     origin: env.WEB_ORIGIN,
@@ -542,7 +656,12 @@ export const buildApp = () => {
   });
 
   app.get('/workers', { preHandler: requireRole(['staff', 'customer']) }, async () => {
-    return Array.from(workers.values()).map(toWorkerResponse);
+    const prismaWorkers = await prismaClient.worker.findMany({
+      include: { flags: true },
+      orderBy: [{ createdAt: 'asc' }, { employeeCode: 'asc' }],
+    });
+
+    return prismaWorkers.map(mapPrismaWorkerToResponse);
   });
 
   app.post('/workers', { preHandler: requireRole(['staff']) }, async (request, reply) => {
@@ -552,45 +671,55 @@ export const buildApp = () => {
       return reply.code(400).send({ message: 'Invalid worker payload' });
     }
 
-    const employeeCode = parsed.data.employeeCode.toLowerCase();
-    if (employeeCodeToWorkerId.has(employeeCode)) {
-      return reply.code(409).send({ message: 'Employee code already exists' });
+    const status = mapApiStatusToPrisma(parsed.data.status);
+
+    try {
+      const createdWorker = await prismaClient.worker.create({
+        data: {
+          employeeCode: parsed.data.employeeCode,
+          firstName: parsed.data.firstName,
+          lastName: parsed.data.lastName,
+          phone: parsed.data.phone,
+          email: parsed.data.email,
+          status,
+          tier: mapApiTierToPrisma(parsed.data.tier),
+          overallScore: 0,
+          performanceScore: 0,
+          reliabilityScore: 0,
+          lateRate: 0,
+          ncnsRate: 0,
+          ...(status === 'NEEDS_REVIEW'
+            ? {
+                flags: {
+                  create: {
+                    flagType: 'NEEDS_REVIEW',
+                    reason: 'Worker created in needs review state.',
+                  },
+                },
+              }
+            : {}),
+        },
+        include: { flags: true },
+      });
+
+      return reply.code(201).send(mapPrismaWorkerToResponse(createdWorker));
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'P2002') {
+        const target = (((error as { meta?: { target?: string[] } }).meta?.target) ?? []) as string[];
+
+        if (target.includes('employeeCode')) {
+          return reply.code(409).send({ message: 'Employee code already exists' });
+        }
+
+        if (target.includes('email')) {
+          return reply.code(409).send({ message: 'Email already exists' });
+        }
+
+        return reply.code(409).send({ message: 'Worker already exists' });
+      }
+
+      throw error;
     }
-
-    const normalizedEmail = parsed.data.email?.toLowerCase();
-    if (normalizedEmail && emailToWorkerId.has(normalizedEmail)) {
-      return reply.code(409).send({ message: 'Email already exists' });
-    }
-
-    const id = `worker-${nextWorkerId}`;
-    nextWorkerId += 1;
-
-    const status = parsed.data.status ?? 'active';
-    const worker: WorkerRecord = {
-      id,
-      employeeCode: parsed.data.employeeCode,
-      firstName: parsed.data.firstName,
-      lastName: parsed.data.lastName,
-      phone: parsed.data.phone,
-      email: parsed.data.email,
-      name: `${parsed.data.firstName} ${parsed.data.lastName}`,
-      status,
-      score: 0,
-      performanceScore: 0,
-      reliabilityScore: 0,
-      lateRate: 0,
-      ncnsRate: 0,
-      tier: parsed.data.tier ?? 'Watchlist',
-      flags: status === 'needs_review' ? ['needs-review'] : [],
-    };
-
-    workers.set(id, worker);
-    employeeCodeToWorkerId.set(employeeCode, id);
-    if (normalizedEmail) {
-      emailToWorkerId.set(normalizedEmail, id);
-    }
-
-    return reply.code(201).send(toWorkerResponse(worker));
   });
 
   app.post('/auth/login', async (request, reply) => {
@@ -611,13 +740,16 @@ export const buildApp = () => {
 
   app.get('/workers/:id', { preHandler: requireRole(['staff']) }, async (request, reply) => {
     const params = request.params as { id: string };
-    const worker = workers.get(params.id);
+    const worker = await prismaClient.worker.findUnique({
+      where: { id: params.id },
+      include: { flags: true },
+    });
 
     if (!worker) {
       return reply.code(404).send({ message: 'Worker not found' });
     }
 
-    return reply.send(toWorkerResponse(worker));
+    return reply.send(mapPrismaWorkerToResponse(worker));
   });
 
   app.get('/workers/:id/profile-analytics', { preHandler: requireRole(['staff', 'worker']) }, async (request, reply) => {
