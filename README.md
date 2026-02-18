@@ -251,6 +251,26 @@ Initial CI pipeline steps:
 4. Run lint and typecheck/build.
 5. Add test execution once a stable CI-safe root test command is configured.
 
+
+## Deployment configuration (GitHub Pages)
+
+The GitHub Pages workflow (`.github/workflows/deploy-pages.yml`) builds the web app with a production API origin passed as `VITE_API_BASE_URL`.
+
+Required repository configuration:
+
+1. Open **GitHub → Repository → Settings → Secrets and variables → Actions → Variables**.
+2. Create a repository variable named **`VITE_API_BASE_URL`**.
+3. Set it to your deployed API origin (example: `https://api.example.com`).
+
+The deploy workflow injects this variable into the build step:
+
+- `VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}`
+
+Important behavior:
+
+- Local development can still fall back to `http://localhost:4000` when `npm run dev:web` runs without `VITE_API_BASE_URL`.
+- Production builds must define `VITE_API_BASE_URL`; otherwise the app intentionally throws an error to prevent shipping a `localhost` API target.
+
 ### GitHub branch protection setup
 
 To protect `main`:

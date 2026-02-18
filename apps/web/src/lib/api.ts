@@ -2,7 +2,21 @@ import type { UserRole } from '@crewpulse/contracts';
 
 import type { AuthState } from './auth';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
+const API_BASE_URL = (() => {
+  const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL;
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  if (import.meta.env.DEV) {
+    return 'http://localhost:4000';
+  }
+
+  throw new Error(
+    'Missing VITE_API_BASE_URL for production build. Configure it in your deployment environment.',
+  );
+})();
 
 export type HealthResponse = {
   status: string;
