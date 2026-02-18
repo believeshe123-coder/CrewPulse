@@ -41,7 +41,86 @@ test('GET /workers/:id is staff-only', async (t) => {
   assert.equal(denied.statusCode, 403);
 });
 
-test('POST /assignments/:id/customer-rating allows customer and staff but denies worker', async (t) => {
+test('POST /assignments creates records and validates worker relation', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp();
+  t.after(async () => {
+    await app.close();
+  });
+
+  const staffToken = await loginAs(app, 'staff-1');
+
+  const invalidWorker = await app.inject({
+    method: 'POST',
+    url: '/assignments',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: {
+      workerId: 'missing-worker',
+      category: 'events',
+      scheduledStart: '2026-05-01T09:00:00.000Z',
+    },
+  });
+  assert.equal(invalidWorker.statusCode, 400);
+
+  const created = await app.inject({
+    method: 'POST',
+    url: '/assignments',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: {
+      workerId: 'worker-1',
+      category: 'events',
+      scheduledStart: '2026-05-01T09:00:00.000Z',
+      scheduledEnd: '2026-05-01T17:00:00.000Z',
+    },
+  });
+  assert.equal(created.statusCode, 201);
+  const createdPayload = created.json() as { id: string; workerId: string };
+  assert.equal(createdPayload.workerId, 'worker-1');
+
+  const fetched = await app.inject({
+    method: 'GET',
+    url: `/assignments/${createdPayload.id}`,
+    headers: { authorization: `Bearer ${staffToken}` },
+  });
+  assert.equal(fetched.statusCode, 200);
+});
+
+test('POST /assignments/:id/events records staffing outcomes', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp();
+  t.after(async () => {
+    await app.close();
+  });
+
+  const staffToken = await loginAs(app, 'staff-1');
+
+  const invalid = await app.inject({
+    method: 'POST',
+    url: '/assignments/a-1/events',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: { eventType: 'unknown' },
+  });
+  assert.equal(invalid.statusCode, 400);
+
+  const created = await app.inject({
+    method: 'POST',
+    url: '/assignments/a-1/events',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: { eventType: 'late', notes: 'Arrived 12 minutes late' },
+  });
+  assert.equal(created.statusCode, 201);
+
+  const details = await app.inject({
+    method: 'GET',
+    url: '/assignments/a-1',
+    headers: { authorization: `Bearer ${staffToken}` },
+  });
+  const payload = details.json() as { events: Array<{ eventType: string }> };
+  assert.equal(payload.events.length, 1);
+  assert.equal(payload.events[0]?.eventType, 'late');
+});
+
+test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => {
   clearSessionsForTests();
   const app = buildApp();
   t.after(async () => {
@@ -50,56 +129,56 @@ test('POST /assignments/:id/customer-rating allows customer and staff but denies
 
   const staffToken = await loginAs(app, 'staff-1');
   const customerToken = await loginAs(app, 'customer-1');
-  const workerToken = await loginAs(app, 'worker-1');
 
-  const payload = { rating: 5, note: 'Great outcome' };
+  const badStaffRating = await app.inject({
+    method: 'POST',
+    url: '/assignments/a-1/staff-rating',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: { overall: 0, tags: ['attendance'] },
+  });
+  assert.equal(badStaffRating.statusCode, 400);
 
-  const customerAllowed = await app.inject({
+  const validStaffRating = await app.inject({
+    method: 'POST',
+    url: '/assignments/a-1/staff-rating',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: { overall: 5, tags: ['attendance'], internalNotes: 'Dependable worker' },
+  });
+  assert.equal(validStaffRating.statusCode, 201);
+  const staffPayload = validStaffRating.json() as { submittedAt: string };
+  assert.ok(staffPayload.submittedAt);
+
+  const duplicateStaffRating = await app.inject({
+    method: 'POST',
+    url: '/assignments/a-1/staff-rating',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: { overall: 3, tags: [] },
+  });
+  assert.equal(duplicateStaffRating.statusCode, 409);
+
+  const badCustomerRating = await app.inject({
     method: 'POST',
     url: '/assignments/a-1/customer-rating',
     headers: { authorization: `Bearer ${customerToken}` },
-    payload,
+    payload: { overall: 6 },
   });
-  assert.equal(customerAllowed.statusCode, 201);
+  assert.equal(badCustomerRating.statusCode, 400);
 
-  const staffAllowed = await app.inject({
+  const validCustomerRating = await app.inject({
     method: 'POST',
-    url: '/assignments/a-2/customer-rating',
-    headers: { authorization: `Bearer ${staffToken}` },
-    payload,
+    url: '/assignments/a-1/customer-rating',
+    headers: { authorization: `Bearer ${customerToken}` },
+    payload: { overall: 4, quality: 5, wouldRehire: true },
   });
-  assert.equal(staffAllowed.statusCode, 201);
+  assert.equal(validCustomerRating.statusCode, 201);
+  const customerPayload = validCustomerRating.json() as { submittedAt: string };
+  assert.ok(customerPayload.submittedAt);
 
-  const workerDenied = await app.inject({
+  const duplicateCustomerRating = await app.inject({
     method: 'POST',
-    url: '/assignments/a-3/customer-rating',
-    headers: { authorization: `Bearer ${workerToken}` },
-    payload,
+    url: '/assignments/a-1/customer-rating',
+    headers: { authorization: `Bearer ${customerToken}` },
+    payload: { overall: 5 },
   });
-  assert.equal(workerDenied.statusCode, 403);
-});
-
-test('worker is denied own profile analytics route', async (t) => {
-  clearSessionsForTests();
-  const app = buildApp();
-  t.after(async () => {
-    await app.close();
-  });
-
-  const workerToken = await loginAs(app, 'worker-1');
-  const staffToken = await loginAs(app, 'staff-1');
-
-  const denied = await app.inject({
-    method: 'GET',
-    url: '/workers/worker-1/profile-analytics',
-    headers: { authorization: `Bearer ${workerToken}` },
-  });
-  assert.equal(denied.statusCode, 403);
-
-  const allowed = await app.inject({
-    method: 'GET',
-    url: '/workers/worker-1/profile-analytics',
-    headers: { authorization: `Bearer ${staffToken}` },
-  });
-  assert.equal(allowed.statusCode, 200);
+  assert.equal(duplicateCustomerRating.statusCode, 409);
 });

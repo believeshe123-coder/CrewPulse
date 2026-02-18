@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom';
 
-import { AssignmentRatingPage } from './AssignmentRatingPage';
+import { AssignmentDetailPage } from './AssignmentDetailPage';
+import { AssignmentsPage } from './AssignmentsPage';
 import { LandingPage } from './LandingPage';
 import { RoleGuard } from './RoleGuard';
 import { WorkerAnalyticsPage } from './WorkerAnalyticsPage';
@@ -22,6 +23,14 @@ export const router = createBrowserRouter([
         path: '/workers/:id/profile-analytics',
         element: <WorkerAnalyticsPage />,
       },
+      {
+        path: '/assignments',
+        element: <AssignmentsPage />,
+      },
+      {
+        path: '/assignments/:id',
+        element: <AssignmentDetailPage />,
+      },
     ],
   },
   {
@@ -29,7 +38,7 @@ export const router = createBrowserRouter([
     children: [
       {
         path: '/assignments/:id/customer-rating',
-        element: <AssignmentRatingPage />,
+        element: <AssignmentDetailPage />,
       },
     ],
   },
