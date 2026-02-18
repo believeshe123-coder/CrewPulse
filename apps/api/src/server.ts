@@ -1,11 +1,17 @@
 import cors from '@fastify/cors';
 import { PrismaClient } from '@prisma/client';
-import type { UserRole } from '@crewpulse/contracts';
 import Fastify from 'fastify';
 import { z } from 'zod';
 
 import { env } from './env.js';
-import { login, parseLoginPayload, requireRole } from './auth.js';
+import {
+  createUser,
+  login,
+  parseCreateUserPayload,
+  parseLoginPayload,
+  requireRole,
+  type UserRole,
+} from './auth.js';
 import {
   calculateLateRate,
   calculateNcnsRate,
@@ -68,7 +74,6 @@ const createCustomerRatingSchema = z.object({
   comments: z.string().min(1).max(1000).optional(),
 });
 
-
 const workerStatusToApi = {
   ACTIVE: 'active',
   NEEDS_REVIEW: 'needs_review',
@@ -99,10 +104,14 @@ const mapPrismaWorkerToResponse = (worker: WorkerWithFlags): Worker => ({
   lateRate: Number(worker.lateRate),
   ncnsRate: Number(worker.ncnsRate),
   tier: workerTierToApi[worker.tier],
-  flags: worker.flags.filter((flag) => flag.resolvedAt === null).map((flag) => flagTypeToApi[flag.flagType]),
+  flags: worker.flags
+    .filter((flag) => flag.resolvedAt === null)
+    .map((flag) => flagTypeToApi[flag.flagType]),
 });
 
-const mapApiStatusToPrisma = (status: z.infer<typeof createWorkerSchema>['status']): 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE' => {
+const mapApiStatusToPrisma = (
+  status: z.infer<typeof createWorkerSchema>['status'],
+): 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE' => {
   if (!status) {
     return 'ACTIVE';
   }
@@ -110,7 +119,9 @@ const mapApiStatusToPrisma = (status: z.infer<typeof createWorkerSchema>['status
   return status.toUpperCase() as 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE';
 };
 
-const mapApiTierToPrisma = (tier: z.infer<typeof createWorkerSchema>['tier']): 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL' => {
+const mapApiTierToPrisma = (
+  tier: z.infer<typeof createWorkerSchema>['tier'],
+): 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL' => {
   if (!tier) {
     return 'SOLID';
   }
@@ -137,8 +148,6 @@ type Worker = {
   flags: string[];
 };
 
-
-
 type WorkerWithFlags = {
   id: string;
   firstName: string;
@@ -153,14 +162,32 @@ type WorkerWithFlags = {
   flags: Array<{ flagType: 'NEEDS_REVIEW' | 'TERMINATE_RECOMMENDED'; resolvedAt: Date | null }>;
 };
 
-type WorkersPrismaClient = {
+type AppPrismaClient = {
   $disconnect?: () => Promise<void>;
+  user: {
+    findUnique: (args: {
+      where: { username?: string; id?: string };
+      select?: { id?: true; username?: true; passwordHash?: true; role?: true };
+    }) => Promise<null | {
+      id: string;
+      username: string;
+      passwordHash?: string;
+      role: 'STAFF' | 'MODERATOR';
+    }>;
+    create: (args: {
+      data: { username: string; passwordHash: string; role: 'STAFF' | 'MODERATOR' };
+      select: { id: true; username: true; role: true };
+    }) => Promise<{ id: string; username: string; role: 'STAFF' | 'MODERATOR' }>;
+  };
   worker: {
     findMany: (args: {
       include: { flags: true };
       orderBy: Array<{ createdAt?: 'asc' | 'desc'; employeeCode?: 'asc' | 'desc' }>;
     }) => Promise<WorkerWithFlags[]>;
-    findUnique: (args: { where: { id: string }; include: { flags: true } }) => Promise<WorkerWithFlags | null>;
+    findUnique: (args: {
+      where: { id: string };
+      include: { flags: true };
+    }) => Promise<WorkerWithFlags | null>;
     create: (args: {
       data: {
         employeeCode: string;
@@ -281,7 +308,9 @@ const seedWorkers: WorkerRecord[] = [
 ];
 
 const workers = new Map(seedWorkers.map((worker) => [worker.id, worker]));
-const employeeCodeToWorkerId = new Map(seedWorkers.map((worker) => [worker.employeeCode.toLowerCase(), worker.id]));
+const employeeCodeToWorkerId = new Map(
+  seedWorkers.map((worker) => [worker.employeeCode.toLowerCase(), worker.id]),
+);
 const emailToWorkerId = new Map(
   seedWorkers
     .filter((worker) => worker.email)
@@ -467,7 +496,9 @@ const recalculateWorkerScoring = (workerId: string) => {
 
   const performanceScore = calculatePerformanceScore(ratedJobs);
 
-  const allEvents = workerAssignments.flatMap((assignment) => assignmentEvents.get(assignment.id) ?? []);
+  const allEvents = workerAssignments.flatMap(
+    (assignment) => assignmentEvents.get(assignment.id) ?? [],
+  );
   const late = allEvents.filter((event) => event.eventType === 'late').length;
   const sentHome = allEvents.filter((event) => event.eventType === 'sent_home').length;
   const ncns = allEvents.filter((event) => event.eventType === 'ncns').length;
@@ -491,7 +522,9 @@ const recalculateWorkerScoring = (workerId: string) => {
     .slice(0, 5)
     .map((assignment) => assignment.id);
   const ncnsInLastFiveJobs = lastFiveAssignmentIds
-    .map((assignmentId) => (assignmentEvents.get(assignmentId) ?? []).some((event) => event.eventType === 'ncns'))
+    .map((assignmentId) =>
+      (assignmentEvents.get(assignmentId) ?? []).some((event) => event.eventType === 'ncns'),
+    )
     .filter(Boolean).length;
 
   const recentPerformanceScores = [...ratedJobs]
@@ -581,7 +614,11 @@ const buildDashboardSummary = () => {
 
   const ratings = [...staffRatings.values(), ...customerRatings.values()];
   const avgRating =
-    ratings.length === 0 ? 0 : Number((ratings.reduce((sum, rating) => sum + rating.overall, 0) / ratings.length).toFixed(2));
+    ratings.length === 0
+      ? 0
+      : Number(
+          (ratings.reduce((sum, rating) => sum + rating.overall, 0) / ratings.length).toFixed(2),
+        );
   const flaggedWorkers = workerList.filter((worker) => worker.flags.length > 0).length;
 
   return {
@@ -600,7 +637,9 @@ const buildDashboardSummary = () => {
       },
       flags: {
         needs_review: workerList.filter((worker) => worker.flags.includes('needs-review')).length,
-        terminate_recommended: workerList.filter((worker) => worker.flags.includes('terminate-recommended')).length,
+        terminate_recommended: workerList.filter((worker) =>
+          worker.flags.includes('terminate-recommended'),
+        ).length,
       },
     },
     keyCards: [
@@ -633,9 +672,10 @@ const buildDashboardSummary = () => {
   };
 };
 
-export const buildApp = (deps: { prismaClient?: WorkersPrismaClient } = {}) => {
+export const buildApp = (deps: { prismaClient?: AppPrismaClient } = {}) => {
   const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
-  const prismaClient: WorkersPrismaClient = (deps.prismaClient ?? new PrismaClient()) as unknown as WorkersPrismaClient;
+  const prismaClient: AppPrismaClient = (deps.prismaClient ??
+    new PrismaClient()) as unknown as AppPrismaClient;
 
   app.addHook('onClose', async () => {
     if (!deps.prismaClient && prismaClient.$disconnect) {
@@ -655,7 +695,7 @@ export const buildApp = (deps: { prismaClient?: WorkersPrismaClient } = {}) => {
     };
   });
 
-  app.get('/workers', { preHandler: requireRole(['staff', 'customer']) }, async () => {
+  app.get('/workers', { preHandler: requireRole(['staff', 'moderator']) }, async () => {
     const prismaWorkers = await prismaClient.worker.findMany({
       include: { flags: true },
       orderBy: [{ createdAt: 'asc' }, { employeeCode: 'asc' }],
@@ -704,8 +744,13 @@ export const buildApp = (deps: { prismaClient?: WorkersPrismaClient } = {}) => {
 
       return reply.code(201).send(mapPrismaWorkerToResponse(createdWorker));
     } catch (error) {
-      if (typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'P2002') {
-        const target = (((error as { meta?: { target?: string[] } }).meta?.target) ?? []) as string[];
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2002'
+      ) {
+        const target = ((error as { meta?: { target?: string[] } }).meta?.target ?? []) as string[];
 
         if (target.includes('employeeCode')) {
           return reply.code(409).send({ message: 'Employee code already exists' });
@@ -729,13 +774,36 @@ export const buildApp = (deps: { prismaClient?: WorkersPrismaClient } = {}) => {
       return reply.code(400).send({ message: 'Invalid login payload' });
     }
 
-    const session = login(parsedBody.data.userId);
+    const session = await login(prismaClient, parsedBody.data);
 
     if (!session) {
       return reply.code(401).send({ message: 'Login failed' });
     }
 
     return reply.send({ token: session.token, role: session.role, userId: session.userId });
+  });
+  app.post('/auth/users', { preHandler: requireRole(['moderator']) }, async (request, reply) => {
+    const parsedBody = parseCreateUserPayload(request.body);
+
+    if (!parsedBody.success) {
+      return reply.code(400).send({ message: 'Invalid create user payload' });
+    }
+
+    try {
+      const createdUser = await createUser(prismaClient, parsedBody.data);
+      return reply.code(201).send(createdUser);
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2002'
+      ) {
+        return reply.code(409).send({ message: 'Username already exists' });
+      }
+
+      throw error;
+    }
   });
 
   app.get('/workers/:id', { preHandler: requireRole(['staff']) }, async (request, reply) => {
@@ -752,30 +820,30 @@ export const buildApp = (deps: { prismaClient?: WorkersPrismaClient } = {}) => {
     return reply.send(mapPrismaWorkerToResponse(worker));
   });
 
-  app.get('/workers/:id/profile-analytics', { preHandler: requireRole(['staff', 'worker']) }, async (request, reply) => {
-    const params = request.params as { id: string };
+  app.get(
+    '/workers/:id/profile-analytics',
+    { preHandler: requireRole(['staff', 'moderator']) },
+    async (request, reply) => {
+      const params = request.params as { id: string };
 
-    if (request.user?.role === 'worker' && request.user.userId === params.id) {
-      return reply.code(403).send({ message: 'Workers cannot view their own analytics' });
-    }
+      if (request.user?.role !== 'staff') {
+        return reply.code(403).send({ message: 'Forbidden' });
+      }
 
-    if (request.user?.role !== 'staff') {
-      return reply.code(403).send({ message: 'Forbidden' });
-    }
+      return reply.send({
+        workerId: params.id,
+        productivityScore: 88,
+        attendanceScore: 94,
+        flags: ['quality-audit-watch'],
+      });
+    },
+  );
 
-    return reply.send({
-      workerId: params.id,
-      productivityScore: 88,
-      attendanceScore: 94,
-      flags: ['quality-audit-watch'],
-    });
-  });
-
-  app.get('/assignments', { preHandler: requireRole(['staff', 'customer']) }, async () => {
+  app.get('/assignments', { preHandler: requireRole(['staff', 'moderator']) }, async () => {
     return Array.from(assignments.values()).map(withAssignmentView);
   });
 
-  app.get('/dashboard/summary', { preHandler: requireRole(['staff', 'customer']) }, async () => {
+  app.get('/dashboard/summary', { preHandler: requireRole(['staff', 'moderator']) }, async () => {
     return buildDashboardSummary();
   });
 
@@ -808,113 +876,129 @@ export const buildApp = (deps: { prismaClient?: WorkersPrismaClient } = {}) => {
     return reply.code(201).send(withAssignmentView(assignment));
   });
 
-  app.get('/assignments/:id', { preHandler: requireRole(['staff', 'customer']) }, async (request, reply) => {
-    const params = request.params as { id: string };
-    const assignment = assignments.get(params.id);
+  app.get(
+    '/assignments/:id',
+    { preHandler: requireRole(['staff', 'moderator']) },
+    async (request, reply) => {
+      const params = request.params as { id: string };
+      const assignment = assignments.get(params.id);
 
-    if (!assignment) {
-      return reply.code(404).send({ message: 'Assignment not found' });
-    }
+      if (!assignment) {
+        return reply.code(404).send({ message: 'Assignment not found' });
+      }
 
-    return reply.send(withAssignmentView(assignment));
-  });
+      return reply.send(withAssignmentView(assignment));
+    },
+  );
 
-  app.post('/assignments/:id/events', { preHandler: requireRole(['staff']) }, async (request, reply) => {
-    const params = request.params as { id: string };
-    const parsed = createEventSchema.safeParse(request.body);
+  app.post(
+    '/assignments/:id/events',
+    { preHandler: requireRole(['staff']) },
+    async (request, reply) => {
+      const params = request.params as { id: string };
+      const parsed = createEventSchema.safeParse(request.body);
 
-    if (!parsed.success) {
-      return reply.code(400).send({ message: 'Invalid event payload' });
-    }
+      if (!parsed.success) {
+        return reply.code(400).send({ message: 'Invalid event payload' });
+      }
 
-    const assignment = assignments.get(params.id);
+      const assignment = assignments.get(params.id);
 
-    if (!assignment) {
-      return reply.code(404).send({ message: 'Assignment not found' });
-    }
+      if (!assignment) {
+        return reply.code(404).send({ message: 'Assignment not found' });
+      }
 
-    const events = assignmentEvents.get(params.id) ?? [];
-    const event: AssignmentEvent = {
-      id: `ev-${nextEventId}`,
-      assignmentId: params.id,
-      eventType: parsed.data.eventType,
-      notes: parsed.data.notes,
-      recordedBy: request.user?.userId ?? 'unknown',
-      occurredAt: new Date().toISOString(),
-    };
-    nextEventId += 1;
-    events.push(event);
-    assignmentEvents.set(params.id, events);
-    recalculateWorkerScoring(assignment.workerId);
+      const events = assignmentEvents.get(params.id) ?? [];
+      const event: AssignmentEvent = {
+        id: `ev-${nextEventId}`,
+        assignmentId: params.id,
+        eventType: parsed.data.eventType,
+        notes: parsed.data.notes,
+        recordedBy: request.user?.userId ?? 'unknown',
+        occurredAt: new Date().toISOString(),
+      };
+      nextEventId += 1;
+      events.push(event);
+      assignmentEvents.set(params.id, events);
+      recalculateWorkerScoring(assignment.workerId);
 
-    return reply.code(201).send(event);
-  });
+      return reply.code(201).send(event);
+    },
+  );
 
-  app.post('/assignments/:id/staff-rating', { preHandler: requireRole(['staff']) }, async (request, reply) => {
-    const params = request.params as { id: string };
-    const parsed = createStaffRatingSchema.safeParse(request.body);
+  app.post(
+    '/assignments/:id/staff-rating',
+    { preHandler: requireRole(['staff']) },
+    async (request, reply) => {
+      const params = request.params as { id: string };
+      const parsed = createStaffRatingSchema.safeParse(request.body);
 
-    if (!parsed.success) {
-      return reply.code(400).send({ message: 'Invalid staff rating payload' });
-    }
+      if (!parsed.success) {
+        return reply.code(400).send({ message: 'Invalid staff rating payload' });
+      }
 
-    const assignment = assignments.get(params.id);
+      const assignment = assignments.get(params.id);
 
-    if (!assignment) {
-      return reply.code(404).send({ message: 'Assignment not found' });
-    }
+      if (!assignment) {
+        return reply.code(404).send({ message: 'Assignment not found' });
+      }
 
-    if (staffRatings.has(params.id)) {
-      return reply.code(409).send({ message: 'Staff rating already submitted and immutable' });
-    }
+      if (staffRatings.has(params.id)) {
+        return reply.code(409).send({ message: 'Staff rating already submitted and immutable' });
+      }
 
-    const rating: StaffRating = {
-      id: `sr-${nextStaffRatingId}`,
-      assignmentId: params.id,
-      workerId: assignment.workerId,
-      ratedBy: request.user?.userId ?? 'unknown',
-      submittedAt: new Date().toISOString(),
-      ...parsed.data,
-    };
-    nextStaffRatingId += 1;
-    staffRatings.set(params.id, rating);
-    recalculateWorkerScoring(assignment.workerId);
+      const rating: StaffRating = {
+        id: `sr-${nextStaffRatingId}`,
+        assignmentId: params.id,
+        workerId: assignment.workerId,
+        ratedBy: request.user?.userId ?? 'unknown',
+        submittedAt: new Date().toISOString(),
+        ...parsed.data,
+      };
+      nextStaffRatingId += 1;
+      staffRatings.set(params.id, rating);
+      recalculateWorkerScoring(assignment.workerId);
 
-    return reply.code(201).send(rating);
-  });
+      return reply.code(201).send(rating);
+    },
+  );
 
-  app.post('/assignments/:id/customer-rating', { preHandler: requireRole(['customer', 'staff']) }, async (request, reply) => {
-    const params = request.params as { id: string };
-    const parsed = createCustomerRatingSchema.safeParse(request.body);
+  app.post(
+    '/assignments/:id/customer-rating',
+    { preHandler: requireRole(['moderator', 'staff']) },
+    async (request, reply) => {
+      const params = request.params as { id: string };
+      const parsed = createCustomerRatingSchema.safeParse(request.body);
 
-    if (!parsed.success) {
-      return reply.code(400).send({ message: 'Invalid customer rating payload' });
-    }
+      if (!parsed.success) {
+        return reply.code(400).send({ message: 'Invalid customer rating payload' });
+      }
 
-    const assignment = assignments.get(params.id);
+      const assignment = assignments.get(params.id);
 
-    if (!assignment) {
-      return reply.code(404).send({ message: 'Assignment not found' });
-    }
+      if (!assignment) {
+        return reply.code(404).send({ message: 'Assignment not found' });
+      }
 
-    if (customerRatings.has(params.id)) {
-      return reply.code(409).send({ message: 'Customer rating already submitted and immutable' });
-    }
+      if (customerRatings.has(params.id)) {
+        return reply.code(409).send({ message: 'Customer rating already submitted and immutable' });
+      }
 
-    const rating: CustomerRating = {
-      id: `cr-${nextCustomerRatingId}`,
-      assignmentId: params.id,
-      workerId: assignment.workerId,
-      ratedBy: request.user?.userId ?? 'unknown',
-      submittedAt: new Date().toISOString(),
-      ...parsed.data,
-    };
-    nextCustomerRatingId += 1;
-    customerRatings.set(params.id, rating);
-    recalculateWorkerScoring(assignment.workerId);
+      const rating: CustomerRating = {
+        id: `cr-${nextCustomerRatingId}`,
+        assignmentId: params.id,
+        workerId: assignment.workerId,
+        ratedBy: request.user?.userId ?? 'unknown',
+        submittedAt: new Date().toISOString(),
+        ...parsed.data,
+      };
+      nextCustomerRatingId += 1;
+      customerRatings.set(params.id, rating);
+      recalculateWorkerScoring(assignment.workerId);
 
-    return reply.code(201).send(rating);
-  });
+      return reply.code(201).send(rating);
+    },
+  );
 
   return app;
 };

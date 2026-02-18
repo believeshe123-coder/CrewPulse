@@ -21,6 +21,7 @@
     "@crewpulse/contracts": "0.1.0",
     "@fastify/cors": "^10.0.1",
     "@prisma/client": "^6.1.0",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.5",
     "fastify": "^5.1.0",
     "zod": "^3.23.8"

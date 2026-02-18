@@ -9,6 +9,7 @@ const envSchema = z.object({
   API_HOST: z.string().default('0.0.0.0'),
   DATABASE_URL: z.string().url(),
   WEB_ORIGIN: z.string().url().default('http://localhost:5173'),
+  AUTH_SESSION_SECRET: z.string().min(16).default('dev-only-session-secret'),
 });
 
 export const env = envSchema.parse(process.env);
