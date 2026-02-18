@@ -198,3 +198,24 @@ Filters:
 - Performance over time charts
 - Export reports
 - Smart dispatch suggestions
+
+
+## Database bootstrap
+
+CrewPulse API now includes an initial Prisma schema + migration for workers, assignments, assignment events, ratings, category metrics, and automated flags.
+
+From `apps/api`, run:
+
+```bash
+npm run db:migrate
+npm run db:generate
+npm run db:seed
+```
+
+The seed script creates:
+
+- one high performer profile,
+- one chronic late profile,
+- one NCNS-risk profile.
+
+These records are intended to validate dashboard and flag logic in development.
