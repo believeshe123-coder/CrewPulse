@@ -1,6 +1,38 @@
+import { useState } from 'react';
 import { Badge, Button, Card, Flex, Grid, Heading, Text } from '@radix-ui/themes';
+import { useNavigate } from 'react-router-dom';
+
+import { writeAuthState } from '../lib/auth';
+import { login } from '../lib/api';
 
 export const LandingPage = () => {
+  const navigate = useNavigate();
+  const [pendingRole, setPendingRole] = useState<null | 'staff' | 'customer' | 'worker'>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  const loginAsRole = async ({
+    role,
+    seedUserId,
+    targetPath,
+  }: {
+    role: 'staff' | 'customer' | 'worker';
+    seedUserId: string;
+    targetPath: string;
+  }) => {
+    setLoginError(null);
+    setPendingRole(role);
+
+    try {
+      const nextAuth = await login(seedUserId);
+      writeAuthState(nextAuth);
+      navigate(targetPath);
+    } catch {
+      setLoginError(`Unable to login as ${role}. Please try again.`);
+    } finally {
+      setPendingRole(null);
+    }
+  };
+
   const dashboardSections = [
     {
       title: 'Top Performers',
@@ -32,14 +64,53 @@ export const LandingPage = () => {
           <Text color="gray">Workforce intelligence dashboard (MVP frontend placeholder).</Text>
 
           <Flex gap="2" wrap="wrap">
-            <Button variant="solid">Login as Staff</Button>
-            <Button variant="soft">Login as Customer</Button>
-            <Button variant="soft">Login as Worker</Button>
+            <Button
+              variant="solid"
+              disabled={pendingRole !== null}
+              loading={pendingRole === 'staff'}
+              onClick={() =>
+                void loginAsRole({
+                  role: 'staff',
+                  seedUserId: 'staff-1',
+                  targetPath: '/staff/dashboard',
+                })
+              }
+            >
+              Login as Staff
+            </Button>
+            <Button
+              variant="soft"
+              disabled={pendingRole !== null}
+              loading={pendingRole === 'customer'}
+              onClick={() =>
+                void loginAsRole({
+                  role: 'customer',
+                  seedUserId: 'customer-1',
+                  targetPath: '/customer/home',
+                })
+              }
+            >
+              Login as Customer
+            </Button>
+            <Button
+              variant="soft"
+              disabled={pendingRole !== null}
+              loading={pendingRole === 'worker'}
+              onClick={() =>
+                void loginAsRole({
+                  role: 'worker',
+                  seedUserId: 'worker-1',
+                  targetPath: '/worker/home',
+                })
+              }
+            >
+              Login as Worker
+            </Button>
           </Flex>
 
-          <Text size="2" color="gray">
-            Authentication wiring is intentionally placeholder-only for this first route.
-          </Text>
+          {loginError && <Badge color="red">{loginError}</Badge>}
+
+          <Text size="2" color="gray">Select a role to authenticate with a seeded demo account.</Text>
         </Flex>
       </Card>
 
