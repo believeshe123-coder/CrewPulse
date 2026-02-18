@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { Prisma } from '@prisma/client';
-
 import { clearSessionsForTests } from './auth.js';
 import { buildApp } from './server.js';
 
@@ -50,11 +48,11 @@ const buildWorkersPrismaMock = () => {
         email: 'jordan.miles@example.com',
         status: 'ACTIVE',
         tier: 'STRONG',
-        overallScore: new Prisma.Decimal(4.2),
-        performanceScore: new Prisma.Decimal(4.2),
-        reliabilityScore: new Prisma.Decimal(5),
-        lateRate: new Prisma.Decimal(0),
-        ncnsRate: new Prisma.Decimal(0),
+        overallScore: 4.2,
+        performanceScore: 4.2,
+        reliabilityScore: 5,
+        lateRate: 0,
+        ncnsRate: 0,
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
         updatedAt: new Date('2026-01-01T00:00:00.000Z'),
         flags: [],
@@ -71,11 +69,11 @@ const buildWorkersPrismaMock = () => {
         email: 'taylor.brooks@example.com',
         status: 'NEEDS_REVIEW',
         tier: 'WATCHLIST',
-        overallScore: new Prisma.Decimal(3.15),
-        performanceScore: new Prisma.Decimal(2.9),
-        reliabilityScore: new Prisma.Decimal(3.4),
-        lateRate: new Prisma.Decimal(0.33),
-        ncnsRate: new Prisma.Decimal(0),
+        overallScore: 3.15,
+        performanceScore: 2.9,
+        reliabilityScore: 3.4,
+        lateRate: 0.33,
+        ncnsRate: 0,
         createdAt: new Date('2026-01-02T00:00:00.000Z'),
         updatedAt: new Date('2026-01-02T00:00:00.000Z'),
         flags: [
@@ -101,11 +99,11 @@ const buildWorkersPrismaMock = () => {
         email: 'sam.rivera@example.com',
         status: 'HOLD',
         tier: 'CRITICAL',
-        overallScore: new Prisma.Decimal(1.85),
-        performanceScore: new Prisma.Decimal(1.5),
-        reliabilityScore: new Prisma.Decimal(2.2),
-        lateRate: new Prisma.Decimal(0.2),
-        ncnsRate: new Prisma.Decimal(0.4),
+        overallScore: 1.85,
+        performanceScore: 1.5,
+        reliabilityScore: 2.2,
+        lateRate: 0.2,
+        ncnsRate: 0.4,
         createdAt: new Date('2026-01-03T00:00:00.000Z'),
         updatedAt: new Date('2026-01-03T00:00:00.000Z'),
         flags: [
@@ -138,19 +136,13 @@ const buildWorkersPrismaMock = () => {
       findUnique: async ({ where }: { where: { id: string } }) => workers.get(where.id) ?? null,
       create: async ({ data }: { data: any }) => {
         if (Array.from(workers.values()).some((worker) => worker.employeeCode === data.employeeCode)) {
-          throw new Prisma.PrismaClientKnownRequestError('duplicate', {
-            code: 'P2002',
-            clientVersion: 'test',
-            meta: { target: ['employeeCode'] },
-          });
+          const duplicateEmployeeCodeError = { code: 'P2002', meta: { target: ['employeeCode'] } };
+          throw duplicateEmployeeCodeError;
         }
 
         if (data.email && Array.from(workers.values()).some((worker) => worker.email === data.email)) {
-          throw new Prisma.PrismaClientKnownRequestError('duplicate', {
-            code: 'P2002',
-            clientVersion: 'test',
-            meta: { target: ['email'] },
-          });
+          const duplicateEmailError = { code: 'P2002', meta: { target: ['email'] } };
+          throw duplicateEmailError;
         }
 
         const id = `worker-${nextWorkerId}`;

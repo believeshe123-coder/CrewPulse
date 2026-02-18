@@ -1,5 +1,5 @@
 import cors from '@fastify/cors';
-import { Prisma, PrismaClient, type WorkerStatus, type WorkerTier } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import type { UserRole } from '@crewpulse/contracts';
 import Fastify from 'fastify';
 import { z } from 'zod';
@@ -102,15 +102,15 @@ const mapPrismaWorkerToResponse = (worker: WorkerWithFlags): Worker => ({
   flags: worker.flags.filter((flag) => flag.resolvedAt === null).map((flag) => flagTypeToApi[flag.flagType]),
 });
 
-const mapApiStatusToPrisma = (status: z.infer<typeof createWorkerSchema>['status']): WorkerStatus => {
+const mapApiStatusToPrisma = (status: z.infer<typeof createWorkerSchema>['status']): 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE' => {
   if (!status) {
     return 'ACTIVE';
   }
 
-  return status.toUpperCase() as WorkerStatus;
+  return status.toUpperCase() as 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE';
 };
 
-const mapApiTierToPrisma = (tier: z.infer<typeof createWorkerSchema>['tier']): WorkerTier => {
+const mapApiTierToPrisma = (tier: z.infer<typeof createWorkerSchema>['tier']): 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL' => {
   if (!tier) {
     return 'SOLID';
   }
@@ -121,7 +121,7 @@ const mapApiTierToPrisma = (tier: z.infer<typeof createWorkerSchema>['tier']): W
     return 'WATCHLIST';
   }
 
-  return normalizedTier as WorkerTier;
+  return normalizedTier as 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL';
 };
 
 type Worker = {
@@ -139,14 +139,51 @@ type Worker = {
 
 
 
-type WorkerWithFlags = Prisma.WorkerGetPayload<{ include: { flags: true } }>;
+type WorkerWithFlags = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  status: 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE';
+  overallScore: unknown;
+  performanceScore: unknown;
+  reliabilityScore: unknown;
+  lateRate: unknown;
+  ncnsRate: unknown;
+  tier: 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL';
+  flags: Array<{ flagType: 'NEEDS_REVIEW' | 'TERMINATE_RECOMMENDED'; resolvedAt: Date | null }>;
+};
 
 type WorkersPrismaClient = {
   $disconnect?: () => Promise<void>;
   worker: {
-    findMany: (args: Prisma.WorkerFindManyArgs) => Promise<WorkerWithFlags[]>;
-    findUnique: (args: Prisma.WorkerFindUniqueArgs) => Promise<WorkerWithFlags | null>;
-    create: (args: Prisma.WorkerCreateArgs) => Promise<WorkerWithFlags>;
+    findMany: (args: {
+      include: { flags: true };
+      orderBy: Array<{ createdAt?: 'asc' | 'desc'; employeeCode?: 'asc' | 'desc' }>;
+    }) => Promise<WorkerWithFlags[]>;
+    findUnique: (args: { where: { id: string }; include: { flags: true } }) => Promise<WorkerWithFlags | null>;
+    create: (args: {
+      data: {
+        employeeCode: string;
+        firstName: string;
+        lastName: string;
+        phone?: string;
+        email?: string;
+        status: 'ACTIVE' | 'NEEDS_REVIEW' | 'HOLD' | 'TERMINATE';
+        tier: 'ELITE' | 'STRONG' | 'SOLID' | 'WATCHLIST' | 'CRITICAL';
+        overallScore: number;
+        performanceScore: number;
+        reliabilityScore: number;
+        lateRate: number;
+        ncnsRate: number;
+        flags?: {
+          create: {
+            flagType: 'NEEDS_REVIEW';
+            reason: string;
+          };
+        };
+      };
+      include: { flags: true };
+    }) => Promise<WorkerWithFlags>;
   };
 };
 
@@ -598,7 +635,7 @@ const buildDashboardSummary = () => {
 
 export const buildApp = (deps: { prismaClient?: WorkersPrismaClient } = {}) => {
   const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
-  const prismaClient = deps.prismaClient ?? new PrismaClient();
+  const prismaClient: WorkersPrismaClient = (deps.prismaClient ?? new PrismaClient()) as unknown as WorkersPrismaClient;
 
   app.addHook('onClose', async () => {
     if (!deps.prismaClient && prismaClient.$disconnect) {
@@ -646,11 +683,11 @@ export const buildApp = (deps: { prismaClient?: WorkersPrismaClient } = {}) => {
           email: parsed.data.email,
           status,
           tier: mapApiTierToPrisma(parsed.data.tier),
-          overallScore: new Prisma.Decimal(0),
-          performanceScore: new Prisma.Decimal(0),
-          reliabilityScore: new Prisma.Decimal(0),
-          lateRate: new Prisma.Decimal(0),
-          ncnsRate: new Prisma.Decimal(0),
+          overallScore: 0,
+          performanceScore: 0,
+          reliabilityScore: 0,
+          lateRate: 0,
+          ncnsRate: 0,
           ...(status === 'NEEDS_REVIEW'
             ? {
                 flags: {
@@ -667,11 +704,8 @@ export const buildApp = (deps: { prismaClient?: WorkersPrismaClient } = {}) => {
 
       return reply.code(201).send(mapPrismaWorkerToResponse(createdWorker));
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError
-        && error.code === 'P2002'
-      ) {
-        const target = (error.meta?.target as string[] | undefined) ?? [];
+      if (typeof error === 'object' && error !== null && 'code' in error && (error as { code: string }).code === 'P2002') {
+        const target = (((error as { meta?: { target?: string[] } }).meta?.target) ?? []) as string[];
 
         if (target.includes('employeeCode')) {
           return reply.code(409).send({ message: 'Employee code already exists' });
