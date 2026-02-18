@@ -6,3 +6,6 @@ export type AccountTier = (typeof ACCOUNT_TIERS)[number];
 
 export const RATING_LEVELS = [1, 2, 3, 4, 5] as const;
 export type RatingLevel = (typeof RATING_LEVELS)[number];
+
+export const USER_ROLES = ['staff', 'customer', 'worker'] as const;
+export type UserRole = (typeof USER_ROLES)[number];
