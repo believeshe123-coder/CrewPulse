@@ -4,18 +4,23 @@ import type { AuthState } from './auth';
 
 const API_BASE_URL = (() => {
   const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL;
+  const sanitizeBaseUrl = (url: string) => url.replace(/\/+$/, '');
 
   if (configuredBaseUrl) {
-    return configuredBaseUrl;
+    return sanitizeBaseUrl(configuredBaseUrl);
   }
 
   if (import.meta.env.DEV) {
     return 'http://localhost:4000';
   }
 
-  throw new Error(
-    'Missing VITE_API_BASE_URL for production build. Configure it in your deployment environment.',
+  const fallbackBaseUrl = sanitizeBaseUrl(window.location.origin);
+
+  console.warn(
+    `[api] Missing VITE_API_BASE_URL in production. Falling back to ${fallbackBaseUrl}.`,
   );
+
+  return fallbackBaseUrl;
 })();
 
 export type HealthResponse = {
