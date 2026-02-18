@@ -5,6 +5,15 @@ import { z } from 'zod';
 
 import { env } from './env.js';
 import { login, parseLoginPayload, requireRole } from './auth.js';
+import {
+  calculateLateRate,
+  calculateNcnsRate,
+  calculatePerformanceScore,
+  calculateReliabilityScore,
+  mapTier,
+  shouldFlagNeedsReview,
+  shouldFlagTerminateRecommended,
+} from './services/scoring/index.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -52,6 +61,11 @@ type Worker = {
   id: string;
   name: string;
   score: number;
+  performanceScore: number;
+  reliabilityScore: number;
+  lateRate: number;
+  ncnsRate: number;
+  tier: string;
   flags: string[];
 };
 
@@ -93,7 +107,12 @@ const workers: Record<string, Worker> = {
   'worker-1': {
     id: 'worker-1',
     name: 'Jordan Miles',
-    score: 92,
+    score: 4.2,
+    performanceScore: 4.2,
+    reliabilityScore: 5,
+    lateRate: 0,
+    ncnsRate: 0,
+    tier: 'Strong',
     flags: ['late-cancel-last-quarter'],
   },
 };
@@ -118,6 +137,96 @@ let nextAssignmentId = 2;
 let nextEventId = 1;
 let nextStaffRatingId = 1;
 let nextCustomerRatingId = 1;
+
+const getWorkerAssignments = (workerId: string) =>
+  Array.from(assignments.values()).filter((assignment) => assignment.workerId === workerId);
+
+const recalculateWorkerScoring = (workerId: string) => {
+  const worker = workers[workerId];
+
+  if (!worker) {
+    return;
+  }
+
+  const workerAssignments = getWorkerAssignments(workerId);
+
+  const ratedJobs = workerAssignments.map((assignment) => ({
+    occurredAt: assignment.scheduledStart,
+    staffRating: staffRatings.get(assignment.id)?.overall,
+    customerRating: customerRatings.get(assignment.id)?.overall,
+  }));
+
+  const performanceScore = calculatePerformanceScore(ratedJobs);
+
+  const allEvents = workerAssignments.flatMap((assignment) => assignmentEvents.get(assignment.id) ?? []);
+  const late = allEvents.filter((event) => event.eventType === 'late').length;
+  const sentHome = allEvents.filter((event) => event.eventType === 'sent_home').length;
+  const ncns = allEvents.filter((event) => event.eventType === 'ncns').length;
+  const totalJobs = workerAssignments.length;
+
+  const reliabilityScore = calculateReliabilityScore({
+    totalJobs,
+    late,
+    sentHome,
+    ncns,
+  });
+  const lateRate = calculateLateRate({ totalJobs, late });
+  const ncnsRate = calculateNcnsRate({ totalJobs, ncns });
+
+  const now = Date.now();
+  const incidentsLast30Days = allEvents.filter(
+    (event) => now - new Date(event.occurredAt).getTime() <= 1000 * 60 * 60 * 24 * 30,
+  ).length;
+  const lastFiveAssignmentIds = [...workerAssignments]
+    .sort((a, b) => new Date(b.scheduledStart).getTime() - new Date(a.scheduledStart).getTime())
+    .slice(0, 5)
+    .map((assignment) => assignment.id);
+  const ncnsInLastFiveJobs = lastFiveAssignmentIds
+    .map((assignmentId) => (assignmentEvents.get(assignmentId) ?? []).some((event) => event.eventType === 'ncns'))
+    .filter(Boolean).length;
+
+  const recentPerformanceScores = [...ratedJobs]
+    .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+    .map((job) => {
+      if (job.customerRating && job.staffRating) {
+        return Number((job.customerRating * 0.65 + job.staffRating * 0.35).toFixed(2));
+      }
+
+      return job.customerRating ?? job.staffRating ?? 0;
+    })
+    .slice(0, 5);
+
+  const needsReview = shouldFlagNeedsReview({
+    overallScore: performanceScore,
+    ncnsRate,
+    incidentsLast30Days,
+    lastFivePerformanceScores: recentPerformanceScores,
+  });
+
+  const terminateRecommended = shouldFlagTerminateRecommended({
+    overallScore: performanceScore,
+    totalJobs,
+    ncnsRate,
+    ncnsInLastFiveJobs,
+    severeIncidentFlag: false,
+  });
+
+  const flags: string[] = [];
+  if (needsReview) {
+    flags.push('needs-review');
+  }
+  if (terminateRecommended) {
+    flags.push('terminate-recommended');
+  }
+
+  worker.performanceScore = performanceScore;
+  worker.reliabilityScore = reliabilityScore;
+  worker.lateRate = lateRate;
+  worker.ncnsRate = ncnsRate;
+  worker.score = Number(((performanceScore + reliabilityScore) / 2).toFixed(2));
+  worker.tier = mapTier(performanceScore);
+  worker.flags = flags;
+};
 
 const withAssignmentView = (assignment: Assignment) => ({
   ...assignment,
@@ -216,6 +325,7 @@ export const buildApp = () => {
     };
 
     assignments.set(id, assignment);
+    recalculateWorkerScoring(assignment.workerId);
 
     return reply.code(201).send(withAssignmentView(assignment));
   });
@@ -257,6 +367,7 @@ export const buildApp = () => {
     nextEventId += 1;
     events.push(event);
     assignmentEvents.set(params.id, events);
+    recalculateWorkerScoring(assignment.workerId);
 
     return reply.code(201).send(event);
   });
@@ -289,6 +400,7 @@ export const buildApp = () => {
     };
     nextStaffRatingId += 1;
     staffRatings.set(params.id, rating);
+    recalculateWorkerScoring(assignment.workerId);
 
     return reply.code(201).send(rating);
   });
@@ -321,6 +433,7 @@ export const buildApp = () => {
     };
     nextCustomerRatingId += 1;
     customerRatings.set(params.id, rating);
+    recalculateWorkerScoring(assignment.workerId);
 
     return reply.code(201).send(rating);
   });

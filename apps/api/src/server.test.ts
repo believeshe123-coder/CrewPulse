@@ -182,3 +182,74 @@ test('ratings enforce bounds and immutable submittedAt timestamp', async (t) => 
   });
   assert.equal(duplicateCustomerRating.statusCode, 409);
 });
+
+
+test('scoring and flags recalculate on assignment/rating/event writes', async (t) => {
+  clearSessionsForTests();
+  const app = buildApp();
+  t.after(async () => {
+    await app.close();
+  });
+
+  const staffToken = await loginAs(app, 'staff-1');
+  const customerToken = await loginAs(app, 'customer-1');
+
+  const created = await app.inject({
+    method: 'POST',
+    url: '/assignments',
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: {
+      workerId: 'worker-1',
+      category: 'cleanup',
+      scheduledStart: '2026-06-01T09:00:00.000Z',
+    },
+  });
+  assert.equal(created.statusCode, 201);
+  const assignmentId = (created.json() as { id: string }).id;
+
+  const staffRating = await app.inject({
+    method: 'POST',
+    url: `/assignments/${assignmentId}/staff-rating`,
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: { overall: 2, tags: ['quality'] },
+  });
+  assert.equal(staffRating.statusCode, 201);
+
+  const customerRating = await app.inject({
+    method: 'POST',
+    url: `/assignments/${assignmentId}/customer-rating`,
+    headers: { authorization: `Bearer ${customerToken}` },
+    payload: { overall: 2 },
+  });
+  assert.equal(customerRating.statusCode, 201);
+
+  const ncnsEvent = await app.inject({
+    method: 'POST',
+    url: `/assignments/${assignmentId}/events`,
+    headers: { authorization: `Bearer ${staffToken}` },
+    payload: { eventType: 'ncns' },
+  });
+  assert.equal(ncnsEvent.statusCode, 201);
+
+  const worker = await app.inject({
+    method: 'GET',
+    url: '/workers/worker-1',
+    headers: { authorization: `Bearer ${staffToken}` },
+  });
+  assert.equal(worker.statusCode, 200);
+
+  const workerPayload = worker.json() as {
+    performanceScore: number;
+    reliabilityScore: number;
+    ncnsRate: number;
+    tier: string;
+    flags: string[];
+  };
+
+  assert.equal(workerPayload.performanceScore, 2);
+  assert.equal(workerPayload.reliabilityScore, 4.25);
+  assert.equal(workerPayload.ncnsRate, 0.5);
+  assert.equal(workerPayload.tier, 'Critical');
+  assert.ok(workerPayload.flags.includes('needs-review'));
+  assert.ok(workerPayload.flags.includes('terminate-recommended'));
+});
