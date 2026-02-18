@@ -5,6 +5,7 @@ import { AssignmentDetailPage } from './AssignmentDetailPage';
 import { AssignmentsPage } from './AssignmentsPage';
 import { CustomerHomePage } from './CustomerHomePage';
 import { LandingPage } from './LandingPage';
+import { PostLoginHomePage } from './PostLoginHomePage';
 import { RoleGuard } from './RoleGuard';
 import { StaffDashboardPage } from './StaffDashboardPage';
 import { WorkerHomePage } from './WorkerHomePage';
@@ -15,6 +16,15 @@ export const router = createHashRouter([
   {
     path: '/',
     element: <LandingPage />,
+  },
+  {
+    element: <RoleGuard allowedRoles={['staff', 'customer', 'worker']} />,
+    children: [
+      {
+        path: '/home',
+        element: <PostLoginHomePage />,
+      },
+    ],
   },
   {
     element: <RoleGuard allowedRoles={['staff']} />,
