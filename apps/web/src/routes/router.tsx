@@ -1,5 +1,6 @@
 import { createHashRouter } from 'react-router-dom';
 
+import { AddEmployeePage } from './AddEmployeePage';
 import { AssignmentDetailPage } from './AssignmentDetailPage';
 import { AssignmentsPage } from './AssignmentsPage';
 import { LandingPage } from './LandingPage';
@@ -19,6 +20,10 @@ export const router = createHashRouter([
       {
         path: '/staff/dashboard',
         element: <StaffDashboardPage />,
+      },
+      {
+        path: '/staff/employees/new',
+        element: <AddEmployeePage />,
       },
       {
         path: '/workers/:id',

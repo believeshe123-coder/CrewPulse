@@ -1,6 +1,7 @@
 import {
   Badge,
   Box,
+  Button,
   Card,
   Checkbox,
   Flex,
@@ -186,7 +187,12 @@ export const StaffDashboardPage = () => {
     <Flex direction="column" p="6" gap="4">
       <Flex justify="between" align="center" wrap="wrap" gap="2">
         <Heading size="7">Staff Dashboard</Heading>
-        <Text color="gray">Operational workforce health snapshot</Text>
+        <Flex align="center" gap="2">
+          <Text color="gray">Operational workforce health snapshot</Text>
+          <Button asChild>
+            <a href="/staff/employees/new">Add employee</a>
+          </Button>
+        </Flex>
       </Flex>
 
       <Grid columns={{ initial: '1', sm: '2', lg: '4' }} gap="3">
