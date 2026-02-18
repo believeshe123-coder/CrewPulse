@@ -7,7 +7,148 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum WorkerStatus {
+  ACTIVE
+  NEEDS_REVIEW
+  HOLD
+  TERMINATE
+}
+
+enum AssignmentCategory {
+  WAREHOUSE
+  CLEANUP
+  JANITORIAL
+  EVENTS
+}
+
+enum AssignmentEventType {
+  COMPLETED
+  LATE
+  SENT_HOME
+  NCNS
+}
+
+enum WorkerCategoryTrend {
+  UP
+  FLAT
+  DOWN
+}
+
+enum FlagType {
+  NEEDS_REVIEW
+  TERMINATE_RECOMMENDED
+}
+
 model HealthCheck {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now())
+}
+
+model Worker {
+  id           String   @id @default(uuid())
+  employeeCode String   @unique
+  firstName    String
+  lastName     String
+  phone        String?
+  email        String?  @unique
+  status       WorkerStatus @default(ACTIVE)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assignments           Assignment[]
+  workerCategoryMetrics WorkerCategoryMetric[]
+  flags                 Flag[]
+}
+
+model Assignment {
+  id             String             @id @default(uuid())
+  workerId       String
+  category       AssignmentCategory
+  scheduledStart DateTime
+  scheduledEnd   DateTime?
+  createdAt      DateTime           @default(now())
+
+  worker         Worker             @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  events         AssignmentEvent[]
+  staffRating    StaffRating?
+  customerRating CustomerRating?
+
+  @@index([workerId, scheduledStart])
+  @@index([category])
+}
+
+model AssignmentEvent {
+  id           String              @id @default(uuid())
+  assignmentId String
+  eventType    AssignmentEventType
+  occurredAt   DateTime            @default(now())
+  notes        String?
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, eventType])
+  @@index([eventType, occurredAt])
+}
+
+model StaffRating {
+  id           String   @id @default(uuid())
+  assignmentId String   @unique
+  overall      Int
+  tags         String[]
+  notes        String?
+  ratedAt      DateTime @default(now())
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([overall])
+}
+
+model CustomerRating {
+  id           String   @id @default(uuid())
+  assignmentId String   @unique
+  overall      Int
+  punctuality  Int?
+  workEthic    Int?
+  attitude     Int?
+  quality      Int?
+  safety       Int?
+  wouldRehire  Boolean?
+  comments     String?
+  ratedAt      DateTime @default(now())
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([overall])
+  @@index([wouldRehire])
+}
+
+model WorkerCategoryMetric {
+  id            String              @id @default(uuid())
+  workerId      String
+  category      AssignmentCategory
+  jobsCompleted Int
+  averageScore  Decimal             @db.Decimal(4, 2)
+  lateRate      Decimal             @db.Decimal(5, 4)
+  ncnsRate      Decimal             @db.Decimal(5, 4)
+  trend         WorkerCategoryTrend @default(FLAT)
+  calculatedAt  DateTime            @default(now())
+
+  worker Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([workerId, category])
+  @@index([category, averageScore])
+}
+
+model Flag {
+  id          String   @id @default(uuid())
+  workerId    String
+  flagType    FlagType
+  reason      String
+  triggeredAt DateTime @default(now())
+  resolvedAt  DateTime?
+
+  worker Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@index([workerId, triggeredAt])
+  @@index([flagType, triggeredAt])
 }
