@@ -35,6 +35,16 @@ export type LoginResponse = {
   userId: string;
 };
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 export type AssignmentEventType = 'completed' | 'late' | 'sent_home' | 'ncns';
 
 export type WorkerRecord = {
@@ -101,6 +111,15 @@ const authedRequest = (auth: AuthState) => ({
   'content-type': 'application/json',
 });
 
+const readApiMessage = async (response: Response): Promise<string | null> => {
+  try {
+    const data = (await response.json()) as { message?: unknown };
+    return typeof data.message === 'string' ? data.message : null;
+  } catch {
+    return null;
+  }
+};
+
 export const fetchHealth = async (): Promise<HealthResponse> => {
   const response = await fetch(`${API_BASE_URL}/health`);
 
@@ -111,17 +130,27 @@ export const fetchHealth = async (): Promise<HealthResponse> => {
   return response.json() as Promise<HealthResponse>;
 };
 
-export const login = async (userId: string): Promise<LoginResponse> => {
+export const login = async (username: string, password: string): Promise<LoginResponse> => {
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify({ username, password }),
   });
 
   if (!response.ok) {
-    throw new Error('Login failed');
+    const apiMessage = await readApiMessage(response);
+
+    if (response.status === 401) {
+      throw new ApiError('Invalid username or password.', response.status);
+    }
+
+    if (response.status === 400) {
+      throw new ApiError('Please provide a valid username and password.', response.status);
+    }
+
+    throw new ApiError(apiMessage ?? 'Unable to sign in right now. Please try again.', response.status);
   }
 
   return response.json() as Promise<LoginResponse>;

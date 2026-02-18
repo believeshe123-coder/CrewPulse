@@ -1,36 +1,78 @@
-import { useState } from 'react';
-import { Badge, Button, Card, Flex, Grid, Heading, Text } from '@radix-ui/themes';
+import { FormEvent, useState } from 'react';
+import {
+  Badge,
+  Button,
+  Card,
+  Flex,
+  Grid,
+  Heading,
+  Separator,
+  Text,
+  TextArea,
+  TextField,
+} from '@radix-ui/themes';
 import { useNavigate } from 'react-router-dom';
 
+import { ApiError, login } from '../lib/api';
 import { writeAuthState } from '../lib/auth';
-import { login } from '../lib/api';
 
 export const LandingPage = () => {
   const navigate = useNavigate();
-  const [pendingRole, setPendingRole] = useState<null | 'staff' | 'customer' | 'worker'>(null);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [pendingLogin, setPendingLogin] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  const loginAsRole = async ({
-    role,
-    seedUserId,
-    targetPath,
-  }: {
-    role: 'staff' | 'customer' | 'worker';
-    seedUserId: string;
-    targetPath: string;
-  }) => {
+  const [requestName, setRequestName] = useState('');
+  const [requestReason, setRequestReason] = useState('');
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
+
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setLoginError(null);
-    setPendingRole(role);
+
+    if (!username.trim() || !password) {
+      setLoginError('Username and password are required.');
+      return;
+    }
+
+    setPendingLogin(true);
 
     try {
-      const nextAuth = await login(seedUserId);
+      const nextAuth = await login(username.trim(), password);
       writeAuthState(nextAuth);
-      navigate(targetPath);
-    } catch {
-      setLoginError(`Unable to login as ${role}. Please try again.`);
+      setPassword('');
+      navigate('/home');
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setLoginError(error.message);
+      } else {
+        setLoginError('Sign-in failed. Please try again.');
+      }
     } finally {
-      setPendingRole(null);
+      setPendingLogin(false);
     }
+  };
+
+  const handleAccountRequest = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setRequestError(null);
+    setRequestSuccess(null);
+
+    if (!requestName.trim()) {
+      setRequestError('Enter a username to request an account.');
+      return;
+    }
+
+    if (requestReason.trim().length < 10) {
+      setRequestError('Tell us briefly why you need access (10+ characters).');
+      return;
+    }
+
+    setRequestSuccess('Request received. A moderator will review your account request.');
+    setRequestName('');
+    setRequestReason('');
   };
 
   const dashboardSections = [
@@ -61,56 +103,65 @@ export const LandingPage = () => {
       <Card size="3">
         <Flex direction="column" gap="4">
           <Heading size="8">CrewPulse</Heading>
-          <Text color="gray">Workforce intelligence dashboard (MVP frontend placeholder).</Text>
+          <Text color="gray">Sign in with credentials to access your workspace.</Text>
 
-          <Flex gap="2" wrap="wrap">
-            <Button
-              variant="solid"
-              disabled={pendingRole !== null}
-              loading={pendingRole === 'staff'}
-              onClick={() =>
-                void loginAsRole({
-                  role: 'staff',
-                  seedUserId: 'staff-1',
-                  targetPath: '/staff/dashboard',
-                })
-              }
-            >
-              Login as Staff
-            </Button>
-            <Button
-              variant="soft"
-              disabled={pendingRole !== null}
-              loading={pendingRole === 'customer'}
-              onClick={() =>
-                void loginAsRole({
-                  role: 'customer',
-                  seedUserId: 'customer-1',
-                  targetPath: '/customer/home',
-                })
-              }
-            >
-              Login as Customer
-            </Button>
-            <Button
-              variant="soft"
-              disabled={pendingRole !== null}
-              loading={pendingRole === 'worker'}
-              onClick={() =>
-                void loginAsRole({
-                  role: 'worker',
-                  seedUserId: 'worker-1',
-                  targetPath: '/worker/home',
-                })
-              }
-            >
-              Login as Worker
-            </Button>
-          </Flex>
+          <Grid columns={{ initial: '1', md: '2' }} gap="4">
+            <Card variant="surface">
+              <form onSubmit={(event) => void handleLogin(event)}>
+                <Flex direction="column" gap="3">
+                  <Heading size="5">Login</Heading>
+                  <TextField.Root
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder="Username"
+                    autoComplete="username"
+                  />
+                  <TextField.Root
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Password"
+                    autoComplete="current-password"
+                  />
+                  <Button type="submit" loading={pendingLogin} disabled={pendingLogin}>
+                    Sign in
+                  </Button>
+                  {loginError && <Badge color="red">{loginError}</Badge>}
+                </Flex>
+              </form>
+            </Card>
 
-          {loginError && <Badge color="red">{loginError}</Badge>}
+            <Card variant="surface">
+              <form onSubmit={handleAccountRequest}>
+                <Flex direction="column" gap="3">
+                  <Heading size="5">Request account</Heading>
+                  <Text size="2" color="gray">
+                    Account creation is moderator-managed. Submit a request for review.
+                  </Text>
+                  <TextField.Root
+                    value={requestName}
+                    onChange={(event) => setRequestName(event.target.value)}
+                    placeholder="Desired username"
+                  />
+                  <TextArea
+                    value={requestReason}
+                    onChange={(event) => setRequestReason(event.target.value)}
+                    placeholder="Reason for access"
+                  />
+                  <Button type="submit" variant="soft">
+                    Submit request
+                  </Button>
+                  {requestError && <Badge color="red">{requestError}</Badge>}
+                  {requestSuccess && <Badge color="green">{requestSuccess}</Badge>}
+                </Flex>
+              </form>
+            </Card>
+          </Grid>
 
-          <Text size="2" color="gray">Select a role to authenticate with a seeded demo account.</Text>
+          <Separator size="4" />
+          <Text size="2" color="gray">
+            Authentication errors are shown as safe user-facing messages.
+          </Text>
         </Flex>
       </Card>
 
