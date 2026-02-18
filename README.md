@@ -200,6 +200,14 @@ Filters:
 - Smart dispatch suggestions
 
 
+## Required GitHub Actions Variables
+
+Set the following repository variable for the GitHub Pages deploy workflow:
+
+- `VITE_API_BASE_URL`: Deployed API origin used at build time (for example `https://api.yourdomain.com`). Do **not** include a trailing slash.
+
+Configure this in GitHub at: **Repo → Settings → Secrets and variables → Actions → Variables**.
+
 ## Local Development
 
 Run the CrewPulse web app locally from the repository root:
@@ -260,9 +268,9 @@ Required repository configuration:
 
 1. Open **GitHub → Repository → Settings → Secrets and variables → Actions → Variables**.
 2. Create a repository variable named **`VITE_API_BASE_URL`**.
-3. Set it to your deployed API origin (example: `https://api.example.com`).
+3. Set it to your deployed API origin (example: `https://api.example.com`) with **no trailing slash**.
 
-The deploy workflow injects this variable into the build step:
+The deploy workflow validates this value (present, `http(s)` origin, and no trailing slash) and injects it into the build step:
 
 - `VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}`
 
