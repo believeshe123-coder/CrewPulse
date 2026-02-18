@@ -200,6 +200,25 @@ Filters:
 - Smart dispatch suggestions
 
 
+## Local Development
+
+Run the CrewPulse web app locally from the repository root:
+
+```bash
+npm install
+npm run dev:web
+```
+
+Then open: `http://localhost:5173`
+
+Workspace scripts available from repo root:
+
+```bash
+npm run dev
+npm run build
+npm run preview
+```
+
 ## Database bootstrap
 
 CrewPulse API now includes an initial Prisma schema + migration for workers, assignments, assignment events, ratings, category metrics, and automated flags.
