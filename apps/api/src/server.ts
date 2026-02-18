@@ -60,6 +60,7 @@ const createCustomerRatingSchema = z.object({
 type Worker = {
   id: string;
   name: string;
+  status: 'active' | 'needs_review' | 'hold' | 'terminate';
   score: number;
   performanceScore: number;
   reliabilityScore: number;
@@ -107,6 +108,7 @@ const workers: Record<string, Worker> = {
   'worker-1': {
     id: 'worker-1',
     name: 'Jordan Miles',
+    status: 'active',
     score: 4.2,
     performanceScore: 4.2,
     reliabilityScore: 5,
@@ -115,9 +117,55 @@ const workers: Record<string, Worker> = {
     tier: 'Strong',
     flags: ['late-cancel-last-quarter'],
   },
+  'worker-2': {
+    id: 'worker-2',
+    name: 'Taylor Brooks',
+    status: 'needs_review',
+    score: 3.15,
+    performanceScore: 2.9,
+    reliabilityScore: 3.4,
+    lateRate: 0.33,
+    ncnsRate: 0,
+    tier: 'Watchlist',
+    flags: ['needs-review'],
+  },
+  'worker-3': {
+    id: 'worker-3',
+    name: 'Sam Rivera',
+    status: 'hold',
+    score: 1.85,
+    performanceScore: 1.5,
+    reliabilityScore: 2.2,
+    lateRate: 0.2,
+    ncnsRate: 0.4,
+    tier: 'Critical',
+    flags: ['needs-review', 'terminate-recommended'],
+  },
 };
 
 const assignments = new Map<string, Assignment>([
+  [
+    'a-2',
+    {
+      id: 'a-2',
+      workerId: 'worker-2',
+      category: 'cleanup',
+      scheduledStart: new Date('2026-01-14T09:00:00.000Z').toISOString(),
+      scheduledEnd: new Date('2026-01-14T17:00:00.000Z').toISOString(),
+      createdAt: new Date('2026-01-09T12:00:00.000Z').toISOString(),
+    },
+  ],
+  [
+    'a-3',
+    {
+      id: 'a-3',
+      workerId: 'worker-3',
+      category: 'warehouse',
+      scheduledStart: new Date('2026-01-15T09:00:00.000Z').toISOString(),
+      scheduledEnd: new Date('2026-01-15T17:00:00.000Z').toISOString(),
+      createdAt: new Date('2026-01-12T12:00:00.000Z').toISOString(),
+    },
+  ],
   [
     'a-1',
     {
@@ -133,10 +181,112 @@ const assignments = new Map<string, Assignment>([
 const assignmentEvents = new Map<string, AssignmentEvent[]>();
 const staffRatings = new Map<string, StaffRating>();
 const customerRatings = new Map<string, CustomerRating>();
-let nextAssignmentId = 2;
-let nextEventId = 1;
-let nextStaffRatingId = 1;
-let nextCustomerRatingId = 1;
+let nextAssignmentId = 4;
+let nextEventId = 4;
+let nextStaffRatingId = 4;
+let nextCustomerRatingId = 4;
+
+assignmentEvents.set('a-1', [
+  {
+    id: 'ev-1',
+    assignmentId: 'a-1',
+    eventType: 'completed',
+    recordedBy: 'staff-1',
+    occurredAt: new Date('2026-01-10T17:05:00.000Z').toISOString(),
+  },
+]);
+
+assignmentEvents.set('a-2', [
+  {
+    id: 'ev-2',
+    assignmentId: 'a-2',
+    eventType: 'late',
+    notes: 'Arrived 20 minutes late',
+    recordedBy: 'staff-1',
+    occurredAt: new Date('2026-01-14T09:20:00.000Z').toISOString(),
+  },
+]);
+
+assignmentEvents.set('a-3', [
+  {
+    id: 'ev-3',
+    assignmentId: 'a-3',
+    eventType: 'ncns',
+    notes: 'No call/no show',
+    recordedBy: 'staff-2',
+    occurredAt: new Date('2026-01-15T09:30:00.000Z').toISOString(),
+  },
+]);
+
+staffRatings.set('a-1', {
+  id: 'sr-1',
+  assignmentId: 'a-1',
+  workerId: 'worker-1',
+  ratedBy: 'staff-1',
+  submittedAt: new Date('2026-01-10T18:00:00.000Z').toISOString(),
+  overall: 5,
+  tags: ['dependable', 'team-player'],
+});
+
+staffRatings.set('a-2', {
+  id: 'sr-2',
+  assignmentId: 'a-2',
+  workerId: 'worker-2',
+  ratedBy: 'staff-1',
+  submittedAt: new Date('2026-01-14T18:00:00.000Z').toISOString(),
+  overall: 3,
+  tags: ['late-arrival'],
+});
+
+staffRatings.set('a-3', {
+  id: 'sr-3',
+  assignmentId: 'a-3',
+  workerId: 'worker-3',
+  ratedBy: 'staff-2',
+  submittedAt: new Date('2026-01-15T18:00:00.000Z').toISOString(),
+  overall: 1,
+  tags: ['no-show'],
+});
+
+customerRatings.set('a-1', {
+  id: 'cr-1',
+  assignmentId: 'a-1',
+  workerId: 'worker-1',
+  ratedBy: 'customer-1',
+  submittedAt: new Date('2026-01-10T18:30:00.000Z').toISOString(),
+  overall: 5,
+  punctuality: 5,
+  workEthic: 5,
+  attitude: 5,
+  quality: 5,
+  safety: 5,
+  wouldRehire: true,
+});
+
+customerRatings.set('a-2', {
+  id: 'cr-2',
+  assignmentId: 'a-2',
+  workerId: 'worker-2',
+  ratedBy: 'customer-1',
+  submittedAt: new Date('2026-01-14T18:15:00.000Z').toISOString(),
+  overall: 3,
+  punctuality: 2,
+  workEthic: 3,
+  attitude: 4,
+  quality: 3,
+  safety: 4,
+  wouldRehire: false,
+});
+
+customerRatings.set('a-3', {
+  id: 'cr-3',
+  assignmentId: 'a-3',
+  workerId: 'worker-3',
+  ratedBy: 'customer-2',
+  submittedAt: new Date('2026-01-15T18:15:00.000Z').toISOString(),
+  overall: 1,
+  wouldRehire: false,
+});
 
 const getWorkerAssignments = (workerId: string) =>
   Array.from(assignments.values()).filter((assignment) => assignment.workerId === workerId);
@@ -236,6 +386,90 @@ const withAssignmentView = (assignment: Assignment) => ({
   customerRating: customerRatings.get(assignment.id) ?? null,
 });
 
+const buildDashboardSummary = () => {
+  const workerList = Object.values(workers);
+  const totalWorkers = workerList.length;
+  const statusCounts = workerList.reduce(
+    (accumulator, worker) => {
+      accumulator[worker.status] += 1;
+      return accumulator;
+    },
+    {
+      active: 0,
+      needs_review: 0,
+      hold: 0,
+      terminate: 0,
+    },
+  );
+
+  const events = Array.from(assignmentEvents.values()).flat();
+  const eventCounts = events.reduce(
+    (accumulator, event) => {
+      accumulator[event.eventType] += 1;
+      return accumulator;
+    },
+    {
+      completed: 0,
+      late: 0,
+      sent_home: 0,
+      ncns: 0,
+    },
+  );
+
+  const ratings = [...staffRatings.values(), ...customerRatings.values()];
+  const avgRating =
+    ratings.length === 0 ? 0 : Number((ratings.reduce((sum, rating) => sum + rating.overall, 0) / ratings.length).toFixed(2));
+  const flaggedWorkers = workerList.filter((worker) => worker.flags.length > 0).length;
+
+  return {
+    counts: {
+      workers: {
+        total: totalWorkers,
+        ...statusCounts,
+      },
+      assignments: {
+        total: assignments.size,
+      },
+      events: eventCounts,
+      ratings: {
+        staff: staffRatings.size,
+        customer: customerRatings.size,
+      },
+      flags: {
+        needs_review: workerList.filter((worker) => worker.flags.includes('needs-review')).length,
+        terminate_recommended: workerList.filter((worker) => worker.flags.includes('terminate-recommended')).length,
+      },
+    },
+    keyCards: [
+      {
+        id: 'active-workers',
+        label: 'Active Workers',
+        value: statusCounts.active,
+      },
+      {
+        id: 'workers-needing-review',
+        label: 'Needs Review',
+        value: statusCounts.needs_review,
+      },
+      {
+        id: 'ncns-incidents',
+        label: 'NCNS Incidents',
+        value: eventCounts.ncns,
+      },
+      {
+        id: 'flagged-workers',
+        label: 'Flagged Workers',
+        value: flaggedWorkers,
+      },
+      {
+        id: 'avg-rating',
+        label: 'Average Rating',
+        value: avgRating,
+      },
+    ],
+  };
+};
+
 export const buildApp = () => {
   const app = Fastify({ logger: true });
 
@@ -249,6 +483,10 @@ export const buildApp = () => {
       service: 'api',
       uptime: process.uptime(),
     };
+  });
+
+  app.get('/workers', { preHandler: requireRole(['staff', 'customer']) }, async () => {
+    return Object.values(workers);
   });
 
   app.post('/auth/login', async (request, reply) => {
@@ -299,6 +537,10 @@ export const buildApp = () => {
 
   app.get('/assignments', { preHandler: requireRole(['staff', 'customer']) }, async () => {
     return Array.from(assignments.values()).map(withAssignmentView);
+  });
+
+  app.get('/dashboard/summary', { preHandler: requireRole(['staff', 'customer']) }, async () => {
+    return buildDashboardSummary();
   });
 
   app.post('/assignments', { preHandler: requireRole(['staff']) }, async (request, reply) => {
